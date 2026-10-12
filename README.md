@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./assets/hero.webp" alt="egy-pay — Open-source Egyptian Payments SDK" width="100%" />
+  <img src="./assets/hero.svg" alt="egy-pay — Open-source Egyptian Payments SDK" width="100%" />
 </p>
 
 <h1 align="center">egy-pay</h1>
@@ -172,7 +172,7 @@ The project is at an early stage. Use [GitHub Issues](https://github.com/ibrahim
 
 ## License
 
-MIT. See [LICENSE](./LICENSE).
+MIT. MIT license (planned; license file to be added before the first release).
 
 ---
 
