@@ -172,7 +172,7 @@ The project is at an early stage. Use [GitHub Issues](https://github.com/ibrahim
 
 ## License
 
-MIT. MIT license (planned; license file to be added before the first release).
+MIT. Licensed under the [MIT License](./LICENSE).
 
 ---
 
