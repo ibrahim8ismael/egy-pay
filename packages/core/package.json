@@ -1,0 +1,14 @@
+{
+  "name": "@egy-pay/core",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Headless payment workflow domain and application services for egy-pay.",
+  "type": "module",
+  "files": ["dist"],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  }
+}

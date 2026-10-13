@@ -1,0 +1,14 @@
+{
+  "name": "egy-pay",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@10.33.0",
+  "scripts": {
+    "build": "pnpm --recursive --if-present run build",
+    "typecheck": "pnpm --recursive --if-present run typecheck",
+    "test": "pnpm --recursive --if-present run test"
+  },
+  "devDependencies": {
+    "typescript": "7.0.2"
+  }
+}
