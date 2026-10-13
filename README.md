@@ -20,7 +20,7 @@
   <a href="#roadmap">Roadmap</a>
 </p>
 
-> **Project status: early development.** The SDK is **not yet released on npm**. The initial core API is implemented locally but remains private and unpublished; examples below may evolve before a stable release.
+> **Project status: early development.** The SDK is **not yet released on npm**. The core API and first PostgreSQL adapter are implemented locally, but both packages remain private and unpublished; examples may evolve before a stable release.
 
 ## Why egy-pay?
 
@@ -80,12 +80,22 @@ Authorized review or verified provider transaction
 
 ## Developer experience (proposed)
 
-The core API is implemented, but the package remains private and the PostgreSQL adapter is not available yet. This illustrative example assumes a server-side storage adapter that implements the transactional core contract:
+The core and PostgreSQL adapter are implemented locally, but packages remain private and unpublished. This example assumes migrations have run and a server-side PostgreSQL pool is available:
 
 ```ts
+import { Pool } from "pg";
 import { createEgyPay } from "@egy-pay/core";
+import { migratePostgres, PostgresPaymentStore } from "@egy-pay/storage-postgres";
 
-// Supply an authorizer backed by your host application's server-side identity and roles.
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+await migratePostgres(pool);
+const storage = new PostgresPaymentStore(pool);
+
+// Implement this with authenticated server-side identity and role data.
+const verificationAuthorizer = {
+  authorize: async ({ merchantId, actorId, sourceType }) =>
+    authzService.canVerifyPayments({ merchantId, actorId, sourceType }),
+};
 const egyPay = createEgyPay({ storage, verificationAuthorizer });
 
 const intent = await egyPay.createIntent({
@@ -148,7 +158,7 @@ The core should depend on **domain interfaces**, not on a particular web framewo
 | Package | Role | Status |
 | --- | --- | --- |
 | `@egy-pay/core` | Payment lifecycle, validation, claims, trusted verification | Implemented privately; unpublished |
-| `@egy-pay/storage-postgres` | Transactional PostgreSQL persistence | Planned |
+| `@egy-pay/storage-postgres` | Transactional PostgreSQL persistence | Implemented locally; unpublished |
 | `@egy-pay/react` | Optional payment instructions and claim UI | Future |
 | `@egy-pay/paymob` | Authorized provider adapter, if supported | Future |
 
@@ -175,8 +185,9 @@ Package names are proposals and are **not a claim of npm availability or ownersh
 
 ## Roadmap
 
-- [ ] **v0.1** — Typed domain models, payment-intent lifecycle, claim submission, explicit verification decisions, and a transactional storage contract.
-- [ ] **v0.2** — PostgreSQL adapter, idempotent payment events, reconciliation primitives, and end-to-end integration tests.
+- [x] **v0.1 core** — Typed domain models, payment-intent lifecycle, claim submission, authorized verification decisions, and a transactional storage contract.
+- [x] **PostgreSQL adapter** — First production persistence adapter with migrations, atomic idempotency, outbox writes, and concurrency integration tests.
+- [ ] **v0.2** — Outbox delivery, trusted-source reconciliation primitives, and reconciliation end-to-end tests.
 - [ ] **v0.3** — Optional React UI, import tooling, and additional documentation/examples.
 - [ ] **Later** — Authorized payment-provider adapters and webhook signature verification where integration access exists.
 

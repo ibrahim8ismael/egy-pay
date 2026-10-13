@@ -1,0 +1,251 @@
+import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+import test from "node:test";
+import { Pool } from "pg";
+import {
+  ConcurrentModificationError,
+  IdempotencyConflictError,
+  StorageConflictError,
+  createEgyPay,
+} from "@egy-pay/core";
+import { migratePostgres, PostgresPaymentStore } from "../dist/index.js";
+
+const databaseUrl = process.env.EGY_PAY_TEST_DATABASE_URL;
+
+test(
+  "PostgreSQL transactional storage contract",
+  { skip: databaseUrl ? false : "Set EGY_PAY_TEST_DATABASE_URL to run PostgreSQL integration tests." },
+  async (t) => {
+    const adminPool = new Pool({ connectionString: databaseUrl, max: 2 });
+    const schema = "egy_pay_test_" + randomUUID().replaceAll("-", "");
+    await adminPool.query("CREATE SCHEMA " + schema);
+    const pool = new Pool({
+      connectionString: databaseUrl,
+      options: "-c search_path=" + schema,
+      max: 10,
+    });
+
+    try {
+      await migratePostgres(pool);
+      await migratePostgres(pool);
+      const storage = new PostgresPaymentStore(pool);
+
+      async function reset() {
+        await pool.query(
+          "TRUNCATE TABLE egy_pay_payment_events, egy_pay_verification_records, " +
+            "egy_pay_payment_claims, egy_pay_payment_intents, egy_pay_idempotency_records",
+        );
+      }
+
+      function sequentialIds() {
+        let counter = 0;
+        return { nextId: () => "test-id-" + (++counter) };
+      }
+
+      function service(ids = sequentialIds()) {
+        return createEgyPay({
+          storage,
+          verificationAuthorizer: { authorize: async () => true },
+          ids,
+        });
+      }
+
+      function intentInput(overrides = {}) {
+        return {
+          merchantId: "merchant-pg",
+          orderId: "order-pg",
+          amountPiasters: 50_000,
+          currency: "EGP",
+          method: "instapay",
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+          idempotencyKey: "create-pg",
+          ...overrides,
+        };
+      }
+
+      function claimInput(intent, overrides = {}) {
+        return {
+          merchantId: intent.merchantId,
+          paymentIntentId: intent.id,
+          customerReference: "CUSTOMER-REF",
+          idempotencyKey: "claim-pg",
+          ...overrides,
+        };
+      }
+
+      function verifyInput(intent, claim, overrides = {}) {
+        return {
+          merchantId: intent.merchantId,
+          paymentIntentId: intent.id,
+          paymentClaimId: claim.id,
+          authorization: {
+            actorType: "HUMAN",
+            actorId: "reviewer-pg",
+            sourceType: "merchant_statement",
+            sourceReference: "row-1",
+            evidenceReference: null,
+          },
+          idempotencyKey: "verify-pg",
+          ...overrides,
+        };
+      }
+
+      async function count(table, condition = "", values = []) {
+        const result = await pool.query(
+          "SELECT count(*)::int AS count FROM " + table +
+            (condition ? " WHERE " + condition : ""),
+          values,
+        );
+        return result.rows[0].count;
+      }
+
+      await t.test("migration applies once and can be rerun", async () => {
+        const result = await pool.query(
+          "SELECT count(*)::int AS count FROM egy_pay_schema_migrations WHERE version = $1",
+          ["001_initial"],
+        );
+        assert.equal(result.rows[0].count, 1);
+      });
+
+      await t.test("persists verified payment and audit/outbox atomically", async () => {
+        await reset();
+        const egyPay = service();
+        const intent = await egyPay.createIntent(intentInput());
+        const claim = await egyPay.submitClaim(claimInput(intent));
+        assert.equal(intent.status, "AWAITING_PAYMENT");
+
+        const unverified = await pool.query(
+          "SELECT status FROM egy_pay_payment_intents WHERE merchant_id = $1 AND id = $2",
+          [intent.merchantId, intent.id],
+        );
+        assert.equal(unverified.rows[0].status, "PAID_UNVERIFIED");
+
+        const paid = await egyPay.verifyPayment(verifyInput(intent, claim));
+        assert.equal(paid.status, "PAID");
+        assert.equal(await count("egy_pay_verification_records"), 1);
+        assert.equal(await count("egy_pay_payment_events", "type = $1", ["payment.paid"]), 1);
+        assert.equal(await count("egy_pay_idempotency_records"), 3);
+      });
+
+      await t.test("failed outbox insert rolls back claim, verification, state, and idempotency", async () => {
+        await reset();
+        const generated = [
+          "intent-1",
+          "event-existing",
+          "claim-1",
+          "claim-event",
+          "verification-1",
+          "event-existing",
+        ];
+        const ids = { nextId: () => generated.shift() };
+        const egyPay = service(ids);
+        const intent = await egyPay.createIntent(intentInput());
+        const claim = await egyPay.submitClaim(claimInput(intent));
+
+        await assert.rejects(
+          egyPay.verifyPayment(verifyInput(intent, claim)),
+          StorageConflictError,
+        );
+        const intentRow = await pool.query(
+          "SELECT status FROM egy_pay_payment_intents WHERE id = $1",
+          [intent.id],
+        );
+        const claimRow = await pool.query(
+          "SELECT status FROM egy_pay_payment_claims WHERE id = $1",
+          [claim.id],
+        );
+        assert.equal(intentRow.rows[0].status, "PAID_UNVERIFIED");
+        assert.equal(claimRow.rows[0].status, "SUBMITTED");
+        assert.equal(await count("egy_pay_verification_records"), 0);
+        assert.equal(await count("egy_pay_payment_events", "type = $1", ["payment.paid"]), 0);
+        assert.equal(await count("egy_pay_idempotency_records"), 2);
+
+        let retryId = 0;
+        const retry = service({ nextId: () => "retry-id-" + (++retryId) });
+        const paid = await retry.verifyPayment(verifyInput(intent, claim));
+        assert.equal(paid.status, "PAID");
+        assert.equal(await count("egy_pay_verification_records"), 1);
+      });
+
+      await t.test("same-key concurrent requests serialize and replay one result", async () => {
+        await reset();
+        const egyPay = service();
+        const input = intentInput();
+        const [first, second] = await Promise.all([
+          egyPay.createIntent(input),
+          egyPay.createIntent(input),
+        ]);
+
+        assert.equal(first.id, second.id);
+        assert.equal(await count("egy_pay_payment_intents"), 1);
+        assert.equal(await count("egy_pay_payment_events"), 1);
+        assert.equal(await count("egy_pay_idempotency_records"), 1);
+      });
+
+      await t.test("same key with changed input conflicts without side effects", async () => {
+        await reset();
+        const egyPay = service();
+        await egyPay.createIntent(intentInput());
+        await assert.rejects(
+          egyPay.createIntent(intentInput({ amountPiasters: 51_000 })),
+          IdempotencyConflictError,
+        );
+        assert.equal(await count("egy_pay_payment_intents"), 1);
+      });
+
+      await t.test("concurrent claims cannot create more than one active claim", async () => {
+        await reset();
+        const egyPay = service();
+        const intent = await egyPay.createIntent(intentInput());
+        const results = await Promise.allSettled([
+          egyPay.submitClaim(claimInput(intent, { idempotencyKey: "claim-a" })),
+          egyPay.submitClaim(claimInput(intent, { idempotencyKey: "claim-b" })),
+        ]);
+        assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
+        assert.equal(results.filter((result) => result.status === "rejected").length, 1);
+        assert.equal(await count("egy_pay_payment_claims", "status = $1", ["SUBMITTED"]), 1);
+        assert.equal(await count("egy_pay_payment_events", "type = $1", ["payment.claim.reported"]), 1);
+      });
+
+      await t.test("concurrent approvals commit exactly one verification and paid event", async () => {
+        await reset();
+        const egyPay = service();
+        const intent = await egyPay.createIntent(intentInput());
+        const claim = await egyPay.submitClaim(claimInput(intent));
+        const results = await Promise.allSettled([
+          egyPay.verifyPayment(verifyInput(intent, claim, { idempotencyKey: "verify-a" })),
+          egyPay.verifyPayment(verifyInput(intent, claim, { idempotencyKey: "verify-b" })),
+        ]);
+        assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
+        assert.equal(results.filter((result) => result.status === "rejected").length, 1);
+        assert.equal(await count("egy_pay_verification_records"), 1);
+        assert.equal(await count("egy_pay_payment_events", "type = $1", ["payment.paid"]), 1);
+      });
+
+      await t.test("version compare-and-swap rejects stale updates", async () => {
+        await reset();
+        const egyPay = service();
+        const intent = await egyPay.createIntent(intentInput());
+        await assert.rejects(
+          storage.transaction((tx) =>
+            tx.updatePaymentIntent(
+              { ...intent, status: "CANCELLED", updatedAt: new Date().toISOString(), version: 1 },
+              0,
+            ),
+          ),
+          ConcurrentModificationError,
+        );
+        const row = await pool.query(
+          "SELECT status, version FROM egy_pay_payment_intents WHERE id = $1",
+          [intent.id],
+        );
+        assert.equal(row.rows[0].status, "AWAITING_PAYMENT");
+        assert.equal(row.rows[0].version, 1);
+      });
+    } finally {
+      await pool.end();
+      await adminPool.query("DROP SCHEMA " + schema + " CASCADE");
+      await adminPool.end();
+    }
+  },
+);

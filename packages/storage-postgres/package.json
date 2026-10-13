@@ -1,0 +1,33 @@
+{
+  "name": "@egy-pay/storage-postgres",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Transactional PostgreSQL adapter for egy-pay.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "dist",
+    "migrations",
+    "scripts",
+    "README.md"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "dependencies": {
+    "@egy-pay/core": "workspace:*",
+    "pg": "8.23.0",
+    "@types/pg": "8.23.1"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit -p tsconfig.build.json",
+    "test": "pnpm run build && node --test test/*.test.mjs",
+    "migrate": "pnpm run build && node scripts/migrate.mjs"
+  }
+}
