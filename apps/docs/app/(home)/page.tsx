@@ -1,10 +1,14 @@
 import Link from 'next/link';
+import { BrandLockup } from '@/components/brand';
 
 export default function HomePage() {
   return (
     <main className="landing">
       <section className="landing-hero">
         <div className="landing-copy">
+          <div className="landing-brand">
+            <BrandLockup />
+          </div>
           <p className="landing-kicker">A TypeScript toolkit for manual payments in Egypt</p>
           <h1 className="landing-title">A transfer claim is not a payment.</h1>
           <p className="landing-description">

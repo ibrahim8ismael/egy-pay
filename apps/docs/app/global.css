@@ -3,41 +3,54 @@
 @import 'fumadocs-ui/css/preset.css';
 
 :root {
-  --color-fd-background: #ffffff;
-  --color-fd-foreground: #000000;
-  --color-fd-muted: #f2f2f2;
-  --color-fd-muted-foreground: #666666;
-  --color-fd-popover: #ffffff;
-  --color-fd-popover-foreground: #000000;
-  --color-fd-card: #ffffff;
-  --color-fd-card-foreground: #000000;
-  --color-fd-border: #d6d6d6;
-  --color-fd-primary: #000000;
+  --brand-cream: #f8f3f0;
+  --brand-ink: #15212a;
+  --brand-red: #d23b38;
+  --brand-red-deep: #a61c24;
+  --brand-sand: #d8cbc4;
+  --brand-teal: #2c967b;
+
+  --color-fd-background: var(--brand-cream);
+  --color-fd-foreground: var(--brand-ink);
+  --color-fd-muted: #f1eae6;
+  --color-fd-muted-foreground: #58656d;
+  --color-fd-popover: #fffdfa;
+  --color-fd-popover-foreground: var(--brand-ink);
+  --color-fd-card: #fffdfa;
+  --color-fd-card-foreground: var(--brand-ink);
+  --color-fd-border: var(--brand-sand);
+  --color-fd-primary: var(--brand-red-deep);
   --color-fd-primary-foreground: #ffffff;
-  --color-fd-secondary: #f2f2f2;
-  --color-fd-secondary-foreground: #000000;
-  --color-fd-accent: #f2f2f2;
-  --color-fd-accent-foreground: #000000;
-  --color-fd-ring: #666666;
+  --color-fd-secondary: #eee5df;
+  --color-fd-secondary-foreground: var(--brand-ink);
+  --color-fd-accent: #f4e6e4;
+  --color-fd-accent-foreground: #76201f;
+  --color-fd-ring: var(--brand-teal);
 }
 
 .dark {
-  --color-fd-background: #000000;
-  --color-fd-foreground: #ffffff;
-  --color-fd-muted: #111111;
-  --color-fd-muted-foreground: #a3a3a3;
-  --color-fd-popover: #080808;
-  --color-fd-popover-foreground: #ffffff;
-  --color-fd-card: #080808;
-  --color-fd-card-foreground: #ffffff;
-  --color-fd-border: #333333;
-  --color-fd-primary: #ffffff;
-  --color-fd-primary-foreground: #000000;
-  --color-fd-secondary: #151515;
-  --color-fd-secondary-foreground: #ffffff;
-  --color-fd-accent: #1c1c1c;
-  --color-fd-accent-foreground: #ffffff;
-  --color-fd-ring: #a3a3a3;
+  --brand-ink: #f8f3f0;
+  --brand-red: #ed6b62;
+  --brand-red-deep: #f0837c;
+  --brand-sand: #46545c;
+  --brand-teal: #5bc09f;
+
+  --color-fd-background: #15212a;
+  --color-fd-foreground: var(--brand-ink);
+  --color-fd-muted: #1e2e37;
+  --color-fd-muted-foreground: #c2cbce;
+  --color-fd-popover: #1b2a33;
+  --color-fd-popover-foreground: var(--brand-ink);
+  --color-fd-card: #1b2a33;
+  --color-fd-card-foreground: var(--brand-ink);
+  --color-fd-border: var(--brand-sand);
+  --color-fd-primary: var(--brand-red);
+  --color-fd-primary-foreground: #15212a;
+  --color-fd-secondary: #263740;
+  --color-fd-secondary-foreground: var(--brand-ink);
+  --color-fd-accent: #3b2e31;
+  --color-fd-accent-foreground: #ffd4cf;
+  --color-fd-ring: var(--brand-teal);
 }
 
 html {
@@ -68,13 +81,13 @@ samp {
 }
 
 ::selection {
-  background: #000000;
+  background: var(--brand-red);
   color: #ffffff;
 }
 
 .dark ::selection {
-  background: #ffffff;
-  color: #000000;
+  background: var(--brand-red);
+  color: #15212a;
 }
 
 .landing {
@@ -143,13 +156,14 @@ samp {
 }
 
 .landing-action-primary {
-  background: var(--color-fd-foreground);
-  color: var(--color-fd-background);
+  background: var(--brand-red);
+  border-color: var(--brand-red);
+  color: #ffffff;
 }
 
 .landing-action-primary:hover {
-  background: var(--color-fd-muted-foreground);
-  border-color: var(--color-fd-muted-foreground);
+  background: var(--brand-red-deep);
+  border-color: var(--brand-red-deep);
 }
 
 .landing-action-secondary:hover {
@@ -214,12 +228,22 @@ samp {
 }
 
 .workflow-item-unverified .workflow-node {
-  background: var(--color-fd-foreground);
+  border-color: var(--brand-red);
+  background: var(--brand-red);
   box-shadow: inset 0 0 0 4px var(--color-fd-background);
 }
 
+.workflow-item-unverified .workflow-label {
+  color: var(--brand-red-deep);
+}
+
 .workflow-item-paid .workflow-node {
-  background: var(--color-fd-foreground);
+  border-color: var(--brand-teal);
+  background: var(--brand-teal);
+}
+
+.workflow-item-paid .workflow-label {
+  color: var(--brand-teal);
 }
 
 .workflow-label {
@@ -317,6 +341,43 @@ samp {
   color: var(--color-fd-muted-foreground);
   font-size: 14px;
   line-height: 1.65;
+}
+
+.brand-lockup {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--color-fd-foreground);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.brand-mark {
+  display: block;
+  flex: none;
+}
+
+.brand-wordmark {
+  font-size: 1.12rem;
+  font-weight: 750;
+  letter-spacing: -0.065em;
+}
+
+.brand-hyphen {
+  color: var(--brand-red);
+}
+
+.landing-brand {
+  margin-bottom: 26px;
+}
+
+.landing-brand .brand-mark {
+  width: 40px;
+  height: 40px;
+}
+
+.landing-brand .brand-wordmark {
+  font-size: 1.5rem;
 }
 
 @media (max-width: 840px) {
