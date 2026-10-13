@@ -15,6 +15,7 @@ function cloneState(state) {
     verifications: new Map(Array.from(state.verifications, ([key, value]) => [key, clone(value)])),
     events: new Map(Array.from(state.events, ([key, value]) => [key, clone(value)])),
     deliveries: new Map(Array.from(state.deliveries, ([key, value]) => [key, clone(value)])),
+    reconciliations: new Map(Array.from(state.reconciliations, ([key, value]) => [key, clone(value)])),
     idempotency: new Map(Array.from(state.idempotency, ([key, value]) => [key, clone(value)])),
   };
 }
@@ -39,6 +40,10 @@ class Mutex {
 
 function idempotencyIndex(scope) {
   return JSON.stringify([scope.merchantId, scope.operation, scope.key]);
+}
+
+function reconciliationIndex(merchantId, sourceType, sourceRecordId) {
+  return JSON.stringify([merchantId, sourceType, sourceRecordId]);
 }
 
 function transactionFor(state, consumeEventFailure) {
@@ -117,6 +122,47 @@ function transactionFor(state, consumeEventFailure) {
         deliveredAt: null,
       });
     },
+    async findReconciliationCandidates(input) {
+      const occurredAt = Date.parse(input.occurredAt);
+      const matches = [];
+      for (const claim of state.claims.values()) {
+        const intent = state.intents.get(claim.paymentIntentId);
+        if (
+          !intent ||
+          claim.merchantId !== input.merchantId ||
+          claim.customerReference !== input.transactionReference ||
+          claim.status !== "SUBMITTED" ||
+          intent.status !== "PAID_UNVERIFIED" ||
+          intent.amountPiasters !== input.amountPiasters ||
+          intent.currency !== input.currency ||
+          intent.method !== input.method ||
+          (claim.reportedAmountPiasters !== null && claim.reportedAmountPiasters !== input.amountPiasters) ||
+          Date.parse(intent.createdAt) > occurredAt ||
+          (intent.expiresAt !== null && occurredAt > Date.parse(intent.expiresAt))
+        ) {
+          continue;
+        }
+        matches.push({ paymentIntent: clone(intent), paymentClaim: clone(claim) });
+      }
+      matches.sort((left, right) =>
+        left.paymentClaim.reportedAt.localeCompare(right.paymentClaim.reportedAt) ||
+        left.paymentClaim.id.localeCompare(right.paymentClaim.id),
+      );
+      return { candidates: matches.slice(0, 2), totalCount: matches.length };
+    },
+    async getReconciliationRecord(merchantId, sourceType, sourceRecordId) {
+      const record = state.reconciliations.get(
+        reconciliationIndex(merchantId, sourceType, sourceRecordId),
+      );
+      return record ? clone(record) : null;
+    },
+    async insertReconciliationRecord(record) {
+      const key = reconciliationIndex(record.merchantId, record.sourceType, record.sourceRecordId);
+      if (state.reconciliations.has(key)) {
+        throw new StorageConflictError("Trusted source record already exists.");
+      }
+      state.reconciliations.set(key, clone(record));
+    },
   };
 }
 
@@ -127,6 +173,7 @@ export class InMemoryPaymentStore {
     verifications: new Map(),
     events: new Map(),
     deliveries: new Map(),
+    reconciliations: new Map(),
     idempotency: new Map(),
   };
   #mutex = new Mutex();
@@ -259,6 +306,7 @@ export class InMemoryPaymentStore {
         eventId,
         ...clone(state),
       })),
+      reconciliationRecords: Array.from(this.#state.reconciliations.values(), clone),
       idempotency: Array.from(this.#state.idempotency.values(), clone),
     };
   }

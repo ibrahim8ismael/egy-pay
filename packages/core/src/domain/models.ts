@@ -17,7 +17,8 @@ export type IdempotencyOperation =
   | "submit_payment_claim"
   | "verify_payment"
   | "reject_payment_claim"
-  | "cancel_payment_intent";
+  | "cancel_payment_intent"
+  | "reconcile_trusted_transaction";
 
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
@@ -111,4 +112,36 @@ export interface IdempotencyScope {
   merchantId: string;
   operation: IdempotencyOperation;
   key: string;
+}
+
+export type ReconciliationStatus = "MATCHED" | "AMBIGUOUS" | "UNMATCHED";
+
+export interface ReconciliationCandidate {
+  paymentIntent: PaymentIntent;
+  paymentClaim: PaymentClaim;
+}
+
+export interface ReconciliationCandidateSet {
+  /** At most two candidate pairs are returned; totalCount remains exact. */
+  candidates: ReconciliationCandidate[];
+  totalCount: number;
+}
+
+export interface ReconciliationRecord {
+  id: string;
+  merchantId: string;
+  sourceType: string;
+  sourceRecordId: string;
+  transactionReference: string;
+  amountPiasters: number;
+  currency: CurrencyCode;
+  method: PaymentMethod;
+  occurredAt: string;
+  actorId: string;
+  sourceHash: string;
+  status: ReconciliationStatus;
+  candidateCount: number;
+  candidatePaymentIntentIds: string[];
+  candidatePaymentClaimIds: string[];
+  createdAt: string;
 }

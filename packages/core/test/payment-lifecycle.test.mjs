@@ -76,6 +76,21 @@ function verificationInput(intent, claim, overrides = {}) {
   };
 }
 
+function trustedTransactionInput(overrides = {}) {
+  return {
+    merchantId: "merchant-1",
+    sourceType: "merchant_statement",
+    sourceRecordId: "statement-row-42",
+    transactionReference: "REF-123",
+    amountPiasters: 50_000,
+    currency: "EGP",
+    method: "instapay",
+    occurredAt: "2026-01-01T00:00:30.000Z",
+    actorId: "statement-importer",
+    ...overrides,
+  };
+}
+
 test("creates an awaiting intent with integer piasters and a created event", async () => {
   const { egyPay, storage } = fixture();
   const intent = await egyPay.createIntent(createInput());
@@ -440,4 +455,116 @@ test("concurrent outbox dispatchers lease distinct events", async () => {
 
   assert.equal(first.delivered + second.delivered, 2);
   assert.equal(new Set(deliveredIds).size, 2);
+});
+
+test("trusted reconciliation records a unique conservative match without confirming payment", async () => {
+  const authorizationRequests = [];
+  const { egyPay, advance, storage } = fixture(undefined, async (request) => {
+    authorizationRequests.push(request);
+    return true;
+  });
+  const intent = await egyPay.createIntent(createInput());
+  const claim = await egyPay.submitClaim(claimInput(intent));
+  advance(60_000);
+
+  const record = await egyPay.reconcileTrustedTransaction(trustedTransactionInput());
+  const snapshot = storage.snapshot();
+
+  assert.equal(record.status, "MATCHED");
+  assert.equal(record.candidateCount, 1);
+  assert.deepEqual(record.candidatePaymentIntentIds, [intent.id]);
+  assert.deepEqual(record.candidatePaymentClaimIds, [claim.id]);
+  assert.deepEqual(authorizationRequests[0], {
+    merchantId: "merchant-1",
+    actorType: "TRUSTED_ADAPTER",
+    actorId: "statement-importer",
+    sourceType: "merchant_statement",
+    sourceReference: "statement-row-42",
+  });
+  assert.equal(snapshot.intents[0].status, "PAID_UNVERIFIED");
+  assert.equal(snapshot.verifications.length, 0);
+  assert.equal(snapshot.events.some((item) => item.type === "payment.paid"), false);
+});
+
+test("trusted reconciliation marks no match and ambiguous matches for review", async () => {
+  const { egyPay, advance, storage } = fixture();
+  const first = await egyPay.createIntent(createInput());
+  const firstClaim = await egyPay.submitClaim(claimInput(first));
+  const second = await egyPay.createIntent(createInput({
+    orderId: "order-2",
+    idempotencyKey: "create-order-2",
+  }));
+  const secondClaim = await egyPay.submitClaim(claimInput(second, {
+    idempotencyKey: "claim-order-2",
+  }));
+  advance(60_000);
+
+  const ambiguous = await egyPay.reconcileTrustedTransaction(trustedTransactionInput());
+  const unmatched = await egyPay.reconcileTrustedTransaction(trustedTransactionInput({
+    sourceRecordId: "statement-row-43",
+    transactionReference: "UNKNOWN-REF",
+  }));
+
+  assert.equal(ambiguous.status, "AMBIGUOUS");
+  assert.equal(ambiguous.candidateCount, 2);
+  assert.deepEqual(new Set(ambiguous.candidatePaymentClaimIds), new Set([firstClaim.id, secondClaim.id]));
+  assert.equal(unmatched.status, "UNMATCHED");
+  assert.equal(unmatched.candidateCount, 0);
+  assert.equal(storage.snapshot().reconciliationRecords.length, 2);
+  assert.equal(storage.snapshot().intents.every((item) => item.status === "PAID_UNVERIFIED"), true);
+});
+
+test("reconciliation replay is idempotent and changed reuse conflicts", async () => {
+  const { egyPay, advance, storage } = fixture();
+  const intent = await egyPay.createIntent(createInput());
+  await egyPay.submitClaim(claimInput(intent));
+  advance(60_000);
+  const input = trustedTransactionInput();
+  const first = await egyPay.reconcileTrustedTransaction(input);
+  const replay = await egyPay.reconcileTrustedTransaction(input);
+
+  assert.equal(replay.id, first.id);
+  await assert.rejects(
+    egyPay.reconcileTrustedTransaction({ ...input, amountPiasters: 51_000 }),
+    IdempotencyConflictError,
+  );
+  assert.equal(storage.snapshot().reconciliationRecords.length, 1);
+});
+
+test("untrusted adapter authorization cannot ingest a reconciliation record", async () => {
+  const { egyPay, advance, storage } = fixture(undefined, async () => false);
+  const intent = await egyPay.createIntent(createInput());
+  await egyPay.submitClaim(claimInput(intent));
+  advance(60_000);
+
+  await assert.rejects(
+    egyPay.reconcileTrustedTransaction(trustedTransactionInput()),
+    VerificationNotAuthorizedError,
+  );
+  assert.equal(storage.snapshot().reconciliationRecords.length, 0);
+  assert.equal(storage.snapshot().intents[0].status, "PAID_UNVERIFIED");
+});
+
+test("reconciliation excludes amount, method, and out-of-window lookalikes", async () => {
+  const { egyPay, advance } = fixture();
+  const intent = await egyPay.createIntent(createInput());
+  await egyPay.submitClaim(claimInput(intent));
+  advance(60_000);
+
+  const wrongAmount = await egyPay.reconcileTrustedTransaction(trustedTransactionInput({
+    sourceRecordId: "amount-mismatch",
+    amountPiasters: 49_999,
+  }));
+  const wrongMethod = await egyPay.reconcileTrustedTransaction(trustedTransactionInput({
+    sourceRecordId: "method-mismatch",
+    method: "vodafone_cash",
+  }));
+  const beforeIntent = await egyPay.reconcileTrustedTransaction(trustedTransactionInput({
+    sourceRecordId: "before-intent",
+    occurredAt: "2025-12-31T23:59:59.000Z",
+  }));
+
+  assert.equal(wrongAmount.status, "UNMATCHED");
+  assert.equal(wrongMethod.status, "UNMATCHED");
+  assert.equal(beforeIntent.status, "UNMATCHED");
 });

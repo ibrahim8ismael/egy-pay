@@ -4,6 +4,8 @@ import type {
   PaymentClaim,
   PaymentEvent,
   PaymentIntent,
+  ReconciliationCandidateSet,
+  ReconciliationRecord,
   VerificationRecord,
 } from "../domain/models.js";
 
@@ -19,6 +21,21 @@ export interface PaymentTransaction {
 
   insertVerificationRecord(record: VerificationRecord): Promise<void>;
   appendPaymentEvent(event: PaymentEvent): Promise<void>;
+
+  findReconciliationCandidates(input: {
+    merchantId: string;
+    transactionReference: string;
+    amountPiasters: number;
+    currency: "EGP";
+    method: "vodafone_cash" | "instapay";
+    occurredAt: string;
+  }): Promise<ReconciliationCandidateSet>;
+  getReconciliationRecord(
+    merchantId: string,
+    sourceType: string,
+    sourceRecordId: string,
+  ): Promise<ReconciliationRecord | null>;
+  insertReconciliationRecord(record: ReconciliationRecord): Promise<void>;
 }
 
 export interface ClaimOutboxEventsInput {

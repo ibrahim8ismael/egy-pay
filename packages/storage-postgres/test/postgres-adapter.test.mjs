@@ -33,8 +33,9 @@ test(
 
       async function reset() {
         await pool.query(
-          "TRUNCATE TABLE egy_pay_payment_events, egy_pay_verification_records, " +
-            "egy_pay_payment_claims, egy_pay_payment_intents, egy_pay_idempotency_records",
+          "TRUNCATE TABLE egy_pay_reconciliation_records, egy_pay_payment_events, " +
+            "egy_pay_verification_records, egy_pay_payment_claims, " +
+            "egy_pay_payment_intents, egy_pay_idempotency_records",
         );
       }
 
@@ -91,6 +92,21 @@ test(
         };
       }
 
+      function reconciliationInput(intent, overrides = {}) {
+        return {
+          merchantId: intent.merchantId,
+          sourceType: "merchant_statement",
+          sourceRecordId: "statement-row-pg-1",
+          transactionReference: "CUSTOMER-REF",
+          amountPiasters: intent.amountPiasters,
+          currency: intent.currency,
+          method: intent.method,
+          occurredAt: new Date().toISOString(),
+          actorId: "trusted-importer-pg",
+          ...overrides,
+        };
+      }
+
       async function count(table, condition = "", values = []) {
         const result = await pool.query(
           "SELECT count(*)::int AS count FROM " + table +
@@ -103,10 +119,10 @@ test(
       await t.test("migration applies once and can be rerun", async () => {
         const result = await pool.query(
           "SELECT count(*)::int AS count FROM egy_pay_schema_migrations " +
-            "WHERE version IN ($1, $2)",
-          ["001_initial", "002_outbox_delivery"],
+          "WHERE version IN ($1, $2, $3)",
+          ["001_initial", "002_outbox_delivery", "003_trusted_reconciliation"],
         );
-        assert.equal(result.rows[0].count, 2);
+        assert.equal(result.rows[0].count, 3);
       });
 
       await t.test("persists verified payment and audit/outbox atomically", async () => {
@@ -221,6 +237,83 @@ test(
 
         assert.equal(first.delivered + second.delivered, 2);
         assert.equal(new Set(deliveredIds).size, 2);
+      });
+
+      await t.test("trusted reconciliation stores a unique match without confirming payment", async () => {
+        await reset();
+        const egyPay = service();
+        const intent = await egyPay.createIntent(intentInput());
+        const claim = await egyPay.submitClaim(claimInput(intent));
+        const input = reconciliationInput(intent);
+        const record = await egyPay.reconcileTrustedTransaction(input);
+        const replay = await egyPay.reconcileTrustedTransaction(input);
+
+        assert.equal(record.status, "MATCHED");
+        assert.equal(record.candidateCount, 1);
+        assert.deepEqual(record.candidatePaymentIntentIds, [intent.id]);
+        assert.deepEqual(record.candidatePaymentClaimIds, [claim.id]);
+        assert.equal(replay.id, record.id);
+        assert.equal(await count("egy_pay_reconciliation_records"), 1);
+        assert.equal(await count("egy_pay_verification_records"), 0);
+        assert.equal(await count("egy_pay_payment_events", "type = $1", ["payment.paid"]), 0);
+        const persistedIntent = await pool.query(
+          "SELECT status FROM egy_pay_payment_intents WHERE id = $1",
+          [intent.id],
+        );
+        assert.equal(persistedIntent.rows[0].status, "PAID_UNVERIFIED");
+        await assert.rejects(
+          egyPay.reconcileTrustedTransaction({ ...input, amountPiasters: 50_001 }),
+          IdempotencyConflictError,
+        );
+      });
+
+      await t.test("ambiguous trusted records remain marked for review", async () => {
+        await reset();
+        const egyPay = service();
+        const first = await egyPay.createIntent(intentInput({ idempotencyKey: "create-reconcile-a" }));
+        await egyPay.submitClaim(claimInput(first, { idempotencyKey: "claim-reconcile-a" }));
+        const second = await egyPay.createIntent(intentInput({
+          orderId: "order-reconcile-b",
+          idempotencyKey: "create-reconcile-b",
+        }));
+        await egyPay.submitClaim(claimInput(second, { idempotencyKey: "claim-reconcile-b" }));
+
+        const record = await egyPay.reconcileTrustedTransaction(reconciliationInput(first));
+        assert.equal(record.status, "AMBIGUOUS");
+        assert.equal(record.candidateCount, 2);
+        assert.equal(record.candidatePaymentClaimIds.length, 2);
+        assert.equal(await count("egy_pay_payment_events", "type = $1", ["payment.paid"]), 0);
+      });
+
+      await t.test("concurrent duplicate source rows create one reconciliation record", async () => {
+        await reset();
+        const egyPay = service();
+        const intent = await egyPay.createIntent(intentInput());
+        await egyPay.submitClaim(claimInput(intent));
+        const input = reconciliationInput(intent);
+        const [first, second] = await Promise.all([
+          egyPay.reconcileTrustedTransaction(input),
+          egyPay.reconcileTrustedTransaction(input),
+        ]);
+
+        assert.equal(first.id, second.id);
+        assert.equal(await count("egy_pay_reconciliation_records"), 1);
+      });
+
+      await t.test("reconciliation fails closed when the adapter is not authorized", async () => {
+        await reset();
+        const authorizedService = service();
+        const intent = await authorizedService.createIntent(intentInput());
+        await authorizedService.submitClaim(claimInput(intent));
+        const deniedService = createEgyPay({
+          storage,
+          verificationAuthorizer: { authorize: async () => false },
+        });
+        await assert.rejects(
+          deniedService.reconcileTrustedTransaction(reconciliationInput(intent)),
+          /not authorized/,
+        );
+        assert.equal(await count("egy_pay_reconciliation_records"), 0);
       });
 
       await t.test("failed outbox insert rolls back claim, verification, state, and idempotency", async () => {

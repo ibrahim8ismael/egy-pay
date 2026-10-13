@@ -7,6 +7,7 @@ import {
   type PaymentClaim,
   type PaymentEvent,
   type PaymentIntent,
+  type ReconciliationRecord,
   type PaymentTransaction,
   type OutboxDeliveryStore,
   type ClaimedOutboxEvent,
@@ -270,6 +271,105 @@ function createTransaction(client: PoolClient): PaymentTransaction {
         ],
       );
     },
+
+    async findReconciliationCandidates(input) {
+      const result = await client.query<DbRow>(
+        "SELECT intent.id AS intent_id, intent.merchant_id AS intent_merchant_id, " +
+          "intent.order_id AS intent_order_id, intent.amount_piasters AS intent_amount_piasters, " +
+          "intent.currency AS intent_currency, intent.method AS intent_method, " +
+          "intent.status AS intent_status, intent.created_at AS intent_created_at, " +
+          "intent.updated_at AS intent_updated_at, intent.expires_at AS intent_expires_at, " +
+          "intent.version AS intent_version, intent.metadata AS intent_metadata, " +
+          "claim.id AS claim_id, claim.merchant_id AS claim_merchant_id, " +
+          "claim.payment_intent_id AS claim_payment_intent_id, claim.customer_id AS claim_customer_id, " +
+          "claim.customer_reference AS claim_customer_reference, " +
+          "claim.reported_amount_piasters AS claim_reported_amount_piasters, " +
+          "claim.evidence_reference AS claim_evidence_reference, claim.status AS claim_status, " +
+          "claim.reported_at AS claim_reported_at, claim.updated_at AS claim_updated_at, " +
+          "claim.version AS claim_version, count(*) OVER() AS candidate_count " +
+          "FROM egy_pay_payment_claims AS claim " +
+          "JOIN egy_pay_payment_intents AS intent " +
+          "ON intent.merchant_id = claim.merchant_id AND intent.id = claim.payment_intent_id " +
+          "WHERE claim.merchant_id = $1 AND claim.customer_reference = $2 " +
+          "AND claim.status = 'SUBMITTED' AND intent.status = 'PAID_UNVERIFIED' " +
+          "AND intent.amount_piasters = $3 AND intent.currency = $4 AND intent.method = $5 " +
+          "AND (claim.reported_amount_piasters IS NULL OR claim.reported_amount_piasters = $3) " +
+          "AND intent.created_at <= $6 AND (intent.expires_at IS NULL OR $6 <= intent.expires_at) " +
+          "ORDER BY claim.reported_at, claim.id LIMIT 2",
+        [
+          input.merchantId,
+          input.transactionReference,
+          input.amountPiasters,
+          input.currency,
+          input.method,
+          input.occurredAt,
+        ],
+      );
+      const candidates = result.rows.map((row) => ({
+        paymentIntent: mapPaymentIntent({
+          id: row.intent_id,
+          merchant_id: row.intent_merchant_id,
+          order_id: row.intent_order_id,
+          amount_piasters: row.intent_amount_piasters,
+          currency: row.intent_currency,
+          method: row.intent_method,
+          status: row.intent_status,
+          created_at: row.intent_created_at,
+          updated_at: row.intent_updated_at,
+          expires_at: row.intent_expires_at,
+          version: row.intent_version,
+          metadata: row.intent_metadata,
+        }),
+        paymentClaim: mapPaymentClaim({
+          id: row.claim_id,
+          merchant_id: row.claim_merchant_id,
+          payment_intent_id: row.claim_payment_intent_id,
+          customer_id: row.claim_customer_id,
+          customer_reference: row.claim_customer_reference,
+          reported_amount_piasters: row.claim_reported_amount_piasters,
+          evidence_reference: row.claim_evidence_reference,
+          status: row.claim_status,
+          reported_at: row.claim_reported_at,
+          updated_at: row.claim_updated_at,
+          version: row.claim_version,
+        }),
+      }));
+      return {
+        candidates,
+        totalCount: result.rows[0]
+          ? dbSafeInteger(result.rows[0].candidate_count, "candidate_count")
+          : 0,
+      };
+    },
+
+    async getReconciliationRecord(merchantId, sourceType, sourceRecordId) {
+      const result = await client.query<DbRow>(
+        "SELECT id, merchant_id, source_type, source_record_id, transaction_reference, " +
+          "amount_piasters, currency, method, occurred_at, actor_id, source_hash, status, " +
+          "candidate_count, candidate_payment_intent_ids, candidate_payment_claim_ids, created_at " +
+          "FROM egy_pay_reconciliation_records " +
+          "WHERE merchant_id = $1 AND source_type = $2 AND source_record_id = $3",
+        [merchantId, sourceType, sourceRecordId],
+      );
+      return result.rows[0] ? mapReconciliationRecord(result.rows[0]) : null;
+    },
+
+    async insertReconciliationRecord(record) {
+      await client.query(
+        "INSERT INTO egy_pay_reconciliation_records " +
+          "(id, merchant_id, source_type, source_record_id, transaction_reference, " +
+          "amount_piasters, currency, method, occurred_at, actor_id, source_hash, status, " +
+          "candidate_count, candidate_payment_intent_ids, candidate_payment_claim_ids, created_at) " +
+          "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::jsonb, $15::jsonb, $16)",
+        [
+          record.id, record.merchantId, record.sourceType, record.sourceRecordId,
+          record.transactionReference, record.amountPiasters, record.currency, record.method,
+          record.occurredAt, record.actorId, record.sourceHash, record.status,
+          record.candidateCount, JSON.stringify(record.candidatePaymentIntentIds),
+          JSON.stringify(record.candidatePaymentClaimIds), record.createdAt,
+        ],
+      );
+    },
   };
 }
 
@@ -305,6 +405,27 @@ function mapPaymentClaim(row: DbRow): PaymentClaim {
     reportedAt: dbDate(row.reported_at, "reported_at"),
     updatedAt: dbDate(row.updated_at, "updated_at"),
     version: dbSafeInteger(row.version, "version"),
+  };
+}
+
+function mapReconciliationRecord(row: DbRow): ReconciliationRecord {
+  return {
+    id: dbText(row, "id"),
+    merchantId: dbText(row, "merchant_id"),
+    sourceType: dbText(row, "source_type"),
+    sourceRecordId: dbText(row, "source_record_id"),
+    transactionReference: dbText(row, "transaction_reference"),
+    amountPiasters: dbSafeInteger(row.amount_piasters, "amount_piasters"),
+    currency: dbText(row, "currency") as ReconciliationRecord["currency"],
+    method: dbText(row, "method") as ReconciliationRecord["method"],
+    occurredAt: dbDate(row.occurred_at, "occurred_at"),
+    actorId: dbText(row, "actor_id"),
+    sourceHash: dbText(row, "source_hash"),
+    status: dbText(row, "status") as ReconciliationRecord["status"],
+    candidateCount: dbSafeInteger(row.candidate_count, "candidate_count"),
+    candidatePaymentIntentIds: dbTextArray(row.candidate_payment_intent_ids, "candidate_payment_intent_ids"),
+    candidatePaymentClaimIds: dbTextArray(row.candidate_payment_claim_ids, "candidate_payment_claim_ids"),
+    createdAt: dbDate(row.created_at, "created_at"),
   };
 }
 
@@ -369,6 +490,14 @@ function dbObject(value: unknown, column: string): JsonObject {
     throw new StorageConflictError("Unexpected database JSON object for " + column + ".");
   }
   return parsed as JsonObject;
+}
+
+function dbTextArray(value: unknown, column: string): string[] {
+  const parsed = typeof value === "string" ? JSON.parse(value) as unknown : value;
+  if (!Array.isArray(parsed) || parsed.some((item) => typeof item !== "string")) {
+    throw new StorageConflictError("Unexpected database JSON array for " + column + ".");
+  }
+  return parsed;
 }
 
 function dbJson(value: unknown): unknown {

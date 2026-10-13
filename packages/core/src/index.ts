@@ -27,6 +27,10 @@ export {
   type PaymentIntent,
   type PaymentMethod,
   type PaymentStatus,
+  type ReconciliationCandidate,
+  type ReconciliationCandidateSet,
+  type ReconciliationRecord,
+  type ReconciliationStatus,
   type VerificationActorType,
   type VerificationAuthorization,
   type VerificationDecision,
@@ -39,6 +43,7 @@ export {
   type EgyPayDependencies,
   type EgyPayService,
   type RejectPaymentClaimInput,
+  type ReconcileTrustedTransactionInput,
   type SubmitPaymentClaimInput,
   type VerifyPaymentInput,
 } from "./application/service.js";

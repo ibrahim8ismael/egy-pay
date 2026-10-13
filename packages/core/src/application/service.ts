@@ -1,5 +1,6 @@
 import {
   ConcurrentModificationError,
+  IdempotencyConflictError,
   InvalidTransitionError,
   PaymentExpiredError,
   PaymentNotFoundError,
@@ -14,6 +15,7 @@ import type {
   PaymentEvent,
   PaymentEventType,
   PaymentIntent,
+  ReconciliationRecord,
   VerificationAuthorization,
   VerificationRecord,
 } from "../domain/models.js";
@@ -73,6 +75,19 @@ export interface CancelPaymentIntentInput {
   idempotencyKey: string;
 }
 
+/** A payment row imported by a host adapter authorized to read a trusted source. */
+export interface ReconcileTrustedTransactionInput {
+  merchantId: string;
+  sourceType: string;
+  sourceRecordId: string;
+  transactionReference: string;
+  amountPiasters: number;
+  currency: CurrencyCode;
+  method: "vodafone_cash" | "instapay";
+  occurredAt: string;
+  actorId: string;
+}
+
 export interface EgyPayDependencies {
   storage: TransactionalPaymentStore;
   verificationAuthorizer?: VerificationAuthorizer;
@@ -87,6 +102,7 @@ export interface EgyPayService {
   rejectClaim(input: RejectPaymentClaimInput): Promise<PaymentIntent>;
   cancelIntent(input: CancelPaymentIntentInput): Promise<PaymentIntent>;
   expireIntent(merchantId: string, paymentIntentId: string): Promise<PaymentIntent>;
+  reconcileTrustedTransaction(input: ReconcileTrustedTransactionInput): Promise<ReconciliationRecord>;
 }
 
 export function createEgyPay(dependencies: EgyPayDependencies): EgyPayService {
@@ -103,6 +119,8 @@ export function createEgyPay(dependencies: EgyPayDependencies): EgyPayService {
     cancelIntent: (input) => cancelIntent(storage, clock, ids, input),
     expireIntent: (merchantId, paymentIntentId) =>
       expireIntent(storage, clock, ids, merchantId, paymentIntentId),
+    reconcileTrustedTransaction: (input) =>
+      reconcileTrustedTransaction(storage, clock, ids, verificationAuthorizer, input),
   };
 }
 
@@ -243,7 +261,7 @@ async function verifyPayment(
   const authorization = normalizeAuthorization(input.authorization);
   const note = optionalText(input.note, "note", 1000);
   const idempotencyKey = normalizeIdempotencyKey(input.idempotencyKey);
-  await requireVerificationAuthorization(authorizer, merchantId, authorization);
+  await requireSourceAuthorization(authorizer, merchantId, authorization);
   const verifiedAt = currentTime(clock).toISOString();
   const requestHash = await hashRequest({
     merchantId,
@@ -296,7 +314,7 @@ async function rejectClaim(
   const reasonCode = requireText(input.reasonCode, "reasonCode", 128);
   const note = optionalText(input.note, "note", 1000);
   const idempotencyKey = normalizeIdempotencyKey(input.idempotencyKey);
-  await requireVerificationAuthorization(authorizer, merchantId, authorization);
+  await requireSourceAuthorization(authorizer, merchantId, authorization);
   const now = currentTime(clock);
   const verifiedAt = now.toISOString();
   const requestHash = await hashRequest({
@@ -409,6 +427,99 @@ async function expireIntent(
     );
     return updatedIntent;
   });
+}
+
+async function reconcileTrustedTransaction(
+  storage: TransactionalPaymentStore,
+  clock: Clock,
+  ids: IdGenerator,
+  authorizer: VerificationAuthorizer | undefined,
+  input: ReconcileTrustedTransactionInput,
+): Promise<ReconciliationRecord> {
+  const merchantId = requireText(input.merchantId, "merchantId");
+  const sourceType = requireText(input.sourceType, "sourceType", 128);
+  const sourceRecordId = requireText(input.sourceRecordId, "sourceRecordId", 128);
+  const transactionReference = requireText(input.transactionReference, "transactionReference", 256);
+  validateAmountPiasters(input.amountPiasters);
+  validateCurrency(input.currency);
+  validateMethod(input.method);
+  const occurredAt = normalizeIsoDate(input.occurredAt, "occurredAt");
+  const actorId = requireText(input.actorId, "actorId");
+  const now = currentTime(clock);
+  if (Date.parse(occurredAt) > now.getTime()) {
+    throw new ValidationError("occurredAt must not be in the future.");
+  }
+
+  const authorization: VerificationAuthorization = {
+    actorType: "TRUSTED_ADAPTER",
+    actorId,
+    sourceType,
+    sourceReference: sourceRecordId,
+    evidenceReference: null,
+  };
+  await requireSourceAuthorization(authorizer, merchantId, authorization);
+
+  const sourceData = {
+    merchantId,
+    sourceType,
+    sourceRecordId,
+    transactionReference,
+    amountPiasters: input.amountPiasters,
+    currency: input.currency,
+    method: input.method,
+    occurredAt,
+  };
+  const sourceHash = await hashRequest(sourceData);
+  const identityKey = await hashRequest({ merchantId, sourceType, sourceRecordId });
+  const requestHash = await hashRequest({ sourceHash, actorId });
+  const createdAt = now.toISOString();
+
+  return storage.runIdempotent<ReconciliationRecord>(
+    idempotentRequest(
+      merchantId,
+      "reconcile_trusted_transaction",
+      identityKey,
+      requestHash,
+      createdAt,
+    ),
+    async (transaction) => {
+      const existing = await transaction.getReconciliationRecord(
+        merchantId,
+        sourceType,
+        sourceRecordId,
+      );
+      if (existing) {
+        if (existing.sourceHash !== sourceHash) throw new IdempotencyConflictError();
+        return existing;
+      }
+
+      const match = await transaction.findReconciliationCandidates({
+        merchantId,
+        transactionReference,
+        amountPiasters: input.amountPiasters,
+        currency: input.currency,
+        method: input.method,
+        occurredAt,
+      });
+      const record: ReconciliationRecord = {
+        id: ids.nextId(),
+        ...sourceData,
+        actorId,
+        sourceHash,
+        status: match.totalCount === 0
+          ? "UNMATCHED"
+          : match.totalCount === 1
+            ? "MATCHED"
+            : "AMBIGUOUS",
+        candidateCount: match.totalCount,
+        candidatePaymentIntentIds: match.candidates.map(({ paymentIntent }) => paymentIntent.id),
+        candidatePaymentClaimIds: match.candidates.map(({ paymentClaim }) => paymentClaim.id),
+        createdAt,
+      };
+      await transaction.insertReconciliationRecord(record);
+      return record;
+    },
+  );
 }
 
 function idempotentRequest(
@@ -535,7 +646,7 @@ function verificationRecord(
   };
 }
 
-async function requireVerificationAuthorization(
+async function requireSourceAuthorization(
   authorizer: VerificationAuthorizer | undefined,
   merchantId: string,
   authorization: VerificationAuthorization,

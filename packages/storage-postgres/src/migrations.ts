@@ -10,6 +10,10 @@ const MIGRATIONS = [
     version: "002_outbox_delivery",
     url: new URL("../migrations/002_outbox_delivery.sql", import.meta.url),
   },
+  {
+    version: "003_trusted_reconciliation",
+    url: new URL("../migrations/003_trusted_reconciliation.sql", import.meta.url),
+  },
 ];
 
 export async function migratePostgres(pool: Pool): Promise<void> {

@@ -53,6 +53,14 @@ metrics.outboxDelivered(result.delivered);
 metrics.outboxFailed(result.failed);
 ```
 
+## Trusted-source reconciliation
+
+`reconcileTrustedTransaction` accepts a transaction row only after the configured `verificationAuthorizer` authorizes its `TRUSTED_ADAPTER` actor, source type, and stable source record ID. The host must obtain that row from a source it is authorized to trust; this package does not connect to a bank or wallet API.
+
+Matching is exact and conservative: merchant, submitted customer reference, integer amount, currency, method, and transaction time within the intent window must agree. A supplied customer-reported amount must also match. Results are recorded as `MATCHED`, `AMBIGUOUS`, or `UNMATCHED`; duplicate source rows replay idempotently, and changed data under the same source identity conflicts. For ambiguous results, the record contains up to two sample candidate IDs and the exact total candidate count.
+
+A match is only a review result. Reconciliation does not change `PAID_UNVERIFIED`, create a `VerificationRecord`, or emit `payment.paid`. An authorized reviewer must still use the privileged verification operation after checking the trusted source. Never log source transaction references or copy them into general event payloads.
+
 ## Integration tests
 
 Set `EGY_PAY_TEST_DATABASE_URL` to a dedicated test database URL and run `pnpm --filter @egy-pay/storage-postgres test`. Tests create a uniquely named schema and drop only that schema afterward. If the variable is absent, PostgreSQL integration tests are reported as skipped.
