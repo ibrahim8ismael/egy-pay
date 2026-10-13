@@ -1,0 +1,39 @@
+---
+title: Storage contract
+description: Connect egy-pay to your application's existing database.
+---
+
+egy-pay contains the payment and verification logic. It does not bundle a database client or choose a database for your application.
+
+## Implement the storage contract
+
+Install the single public package:
+
+~~~bash
+npm install egy-pay
+~~~
+
+Pass an implementation of the exported `TransactionalPaymentStore` to `createEgyPay`:
+
+~~~ts
+import {
+  createEgyPay,
+  type TransactionalPaymentStore,
+  type VerificationAuthorizer,
+} from 'egy-pay';
+import { paymentStore } from './payment-store.js';
+
+const verificationAuthorizer: VerificationAuthorizer = {
+  authorize: async ({ merchantId, actorId, sourceType, sourceReference }) =>
+    permissions.canVerifyPayments({ merchantId, actorId, sourceType, sourceReference }),
+};
+
+const egyPay = createEgyPay({
+  storage: paymentStore satisfies TransactionalPaymentStore,
+  verificationAuthorizer,
+});
+~~~
+
+`paymentStore` belongs to the host application and must provide atomic transactions, version checks, idempotent replay, audit records, and outbox persistence. Use the database and transaction library already used by your application. An in-memory store is suitable only for local examples, never for production payment state.
+
+The storage contract is intentionally strict: a production implementation must serialize matching idempotency keys, reject changed input under the same key, and commit payment changes and their events together. See the exported `TransactionalPaymentStore` and `PaymentTransaction` types for the complete method contract.

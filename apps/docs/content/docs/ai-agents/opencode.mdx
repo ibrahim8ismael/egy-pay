@@ -10,7 +10,7 @@ Integrate egy-pay into the current application. Use the official docs at https:/
 
 First read AGENTS.md, CLAUDE.md, and any local project guidance. Identify the existing framework, auth model, order source, database, package manager, and test commands.
 
-Install @ibrahim.one/core and @ibrahim.one/storage-postgres from npm with the application's package manager; add pg directly when the application imports Pool. Do not clone the egy-pay repository as an application dependency. If npm cannot resolve a package, report the exact registry error instead of guessing a version.
+Install the single `egy-pay` package from npm with the application's package manager. Do not clone the egy-pay repository as an application dependency. If npm cannot resolve the package, report the exact registry error instead of guessing a version.
 
 Follow these constraints:
 - Keep database access and payment operations server-side.
@@ -19,7 +19,7 @@ Follow these constraints:
 - A customer report becomes PAID_UNVERIFIED and must never trigger fulfillment.
 - Protect verifyPayment with server authentication and merchant authorization. Pass an actor identity from trusted session context and record the trusted source reviewed.
 - Start fulfillment only from the committed payment.paid outbox event and deduplicate by stable event ID.
-- PostgreSQL is the only implemented production adapter. MySQL and MongoDB adapters are not available.
+- Use the application's existing database and implement the exported `TransactionalPaymentStore` contract. The package does not include a database adapter.
 - Vodafone Cash and InstaPay remain manual workflows. Never invent provider endpoints or claim automatic verification.
 - Let the core enforce payment transitions; do not update payment status directly in route handlers.
 

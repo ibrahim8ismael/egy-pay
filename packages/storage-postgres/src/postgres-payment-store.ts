@@ -15,7 +15,7 @@ import {
   type TransactionalPaymentStore,
   type IdempotentTransactionRequest,
   type VerificationRecord,
-} from "@ibrahim.one/core";
+} from "egy-pay";
 import type { Pool, PoolClient } from "pg";
 
 type DbRow = Record<string, unknown>;

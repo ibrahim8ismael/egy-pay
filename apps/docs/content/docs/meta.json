@@ -6,7 +6,7 @@
     "payment-lifecycle",
     "manual-transfers",
     "verification",
-    "postgres",
+    "storage",
     "outbox-reconciliation",
     "frameworks",
     "ai-agents"

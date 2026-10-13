@@ -42,7 +42,7 @@ Use authentication and merchant-scope middleware before the route. The handler l
 
 ## NestJS
 
-Register one service instance using Nest providers. Guards establish identity and verify merchant roles; controllers validate transport input and delegate to the core. Keep database pool creation in the application module and close it during application shutdown.
+Register one service instance using Nest providers. Guards establish identity and verify merchant roles; controllers validate transport input and delegate to the library. Supply storage backed by the database already used by the application.
 
 ## tRPC
 

@@ -21,7 +21,7 @@
   <a href="#roadmap">Roadmap</a>
 </p>
 
-> **Project status: v0.1.0 released.** Install the core and PostgreSQL adapter from npm. The API is early and may evolve before a stable release.
+> **Project status: v0.1.1 released.** egy-pay is one TypeScript package. It provides payment and verification logic and connects to storage supplied by your application.
 
 ## Why egy-pay?
 
@@ -81,22 +81,19 @@ Authorized review or verified provider transaction
 
 ## Install from npm
 
-Install the headless core and PostgreSQL adapter in your application:
+Install the headless TypeScript library:
 
 ```sh
-npm install @ibrahim.one/core @ibrahim.one/storage-postgres pg
+npm install egy-pay
 ```
 
-This example assumes a server-side PostgreSQL pool is available:
+Connect it to your application's existing transactional storage implementation:
 
 ```ts
-import { Pool } from "pg";
-import { createEgyPay } from "@ibrahim.one/core";
-import { migratePostgres, PostgresPaymentStore } from "@ibrahim.one/storage-postgres";
+import { createEgyPay, type TransactionalPaymentStore } from "egy-pay";
+import { paymentStore } from "./payment-store.js";
 
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-await migratePostgres(pool);
-const storage = new PostgresPaymentStore(pool);
+const storage: TransactionalPaymentStore = paymentStore;
 
 // Implement this with authenticated server-side identity and role data.
 const verificationAuthorizer = {
@@ -147,7 +144,7 @@ The intended architecture is **headless** and **framework-agnostic**:
 Node.js / Next.js Route Handlers / tRPC / Express / Fastify / NestJS
                               │
                               ▼
-                       @ibrahim.one/core
+                           egy-pay
                   ┌───────────┼───────────┐
                   │           │           │
            Payment logic  Verification  Reconciliation
@@ -160,16 +157,13 @@ Node.js / Next.js Route Handlers / tRPC / Express / Fastify / NestJS
 
 The core should depend on **domain interfaces**, not on a particular web framework or ORM. Authorization belongs at the application boundary, while payment transitions and evidence requirements must also be enforced by the SDK.
 
-### Proposed packages
+### Public package
 
 | Package | Role | Status |
 | --- | --- | --- |
-| `@ibrahim.one/core` | Payment lifecycle, validation, claims, trusted verification, outbox dispatch, reconciliation matching | Published on npm: `0.1.0` |
-| `@ibrahim.one/storage-postgres` | Transactional PostgreSQL persistence | Published on npm: `0.1.0` |
-| `@ibrahim.one/react` | Optional payment instructions and claim UI | Future |
-| `@ibrahim.one/paymob` | Authorized provider adapter, if supported | Future |
+| `egy-pay` | Payment lifecycle, validation, claims, trusted verification, outbox dispatch, reconciliation matching | Published on npm: `0.1.1` |
 
-The core and PostgreSQL adapter are available under the npm account scope `@ibrahim.one`.
+Database connections and persistence stay in the host application. egy-pay exposes a transactional storage contract and does not bundle a database client.
 
 ## Design principles
 
@@ -193,9 +187,9 @@ The core and PostgreSQL adapter are available under the npm account scope `@ibra
 ## Roadmap
 
 - [x] **v0.1 core** — Typed domain models, payment-intent lifecycle, claim submission, authorized verification decisions, and a transactional storage contract.
-- [x] **PostgreSQL adapter** — First production persistence adapter with migrations, atomic idempotency, outbox writes, and concurrency integration tests.
-- [x] **Outbox delivery** — Leased PostgreSQL batches, bounded retries, and at-least-once delivery using stable event IDs.
-- [x] **Trusted-source reconciliation primitives** — Authorized record ingestion, exact conservative matching, replay protection, ambiguity reporting, and PostgreSQL integration tests. Matching never confirms payment.
+- [x] **Transactional storage contract** — Define the atomic persistence guarantees a host application must implement.
+- [x] **Outbox delivery** — Bounded retries and at-least-once delivery using stable event IDs.
+- [x] **Trusted-source reconciliation primitives** — Authorized record ingestion, exact conservative matching, replay protection, and ambiguity reporting. Matching never confirms payment.
 - [ ] **v0.3** — Optional React UI, import tooling, and additional documentation/examples.
 - [ ] **Later** — Authorized payment-provider adapters and webhook signature verification where integration access exists.
 

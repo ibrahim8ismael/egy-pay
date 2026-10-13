@@ -1,13 +1,14 @@
 {
-  "name": "@ibrahim.one/core",
-  "version": "0.1.0",
+  "name": "egy-pay",
+  "version": "0.1.1",
   "description": "Headless payment workflow domain and application services for egy-pay.",
   "type": "module",
   "engines": {
     "node": ">=20"
   },
   "files": [
-    "dist"
+    "dist",
+    "src"
   ],
   "exports": {
     ".": {

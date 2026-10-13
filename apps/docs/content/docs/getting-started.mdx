@@ -1,35 +1,27 @@
 ---
 title: Getting started
-description: Add the core and PostgreSQL adapter to a Node.js application.
+description: Add the egy-pay TypeScript library to a Node.js application.
 ---
 
 ## Install
 
-Install the public npm packages and PostgreSQL client in your application:
+Install the single public package:
 
 ~~~bash
-npm install @ibrahim.one/core @ibrahim.one/storage-postgres pg
+npm install egy-pay
 ~~~
 
-The core supports Node.js 20 or newer and TypeScript. PostgreSQL is the only included production storage adapter.
-
-## Database migrations
-
-Create a dedicated PostgreSQL database and run migratePostgres(pool) from a deployment script before serving requests. The function applies pending migrations transactionally. Create one pool per application process and close it during graceful shutdown.
-
-Use a separate database for local development and tests. Never point an integration-test database URL at production.
+egy-pay supports Node.js 20 or newer and TypeScript. It has no database or framework dependency. Your application supplies an implementation of the exported transactional storage contract using its existing database.
 
 ## Construct the service
 
-Create one PostgreSQL pool per application process. Reuse it across requests and close it when the process shuts down.
-
 ~~~ts
-import { Pool } from 'pg';
-import { createEgyPay } from '@ibrahim.one/core';
-import type { VerificationAuthorizer } from '@ibrahim.one/core';
-import { migratePostgres, PostgresPaymentStore } from '@ibrahim.one/storage-postgres';
-
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+import {
+  createEgyPay,
+  type TransactionalPaymentStore,
+  type VerificationAuthorizer,
+} from 'egy-pay';
+import { paymentStore } from './payment-store.js';
 
 const verificationAuthorizer: VerificationAuthorizer = {
   authorize: async ({ merchantId, actorId, sourceType, sourceReference }) =>
@@ -41,11 +33,8 @@ const verificationAuthorizer: VerificationAuthorizer = {
     }),
 };
 
-const storage = new PostgresPaymentStore(pool);
+const storage: TransactionalPaymentStore = paymentStore;
 const egyPay = createEgyPay({ storage, verificationAuthorizer });
-
-// Run migrations in a deployment step where possible.
-await migratePostgres(pool);
 ~~~
 
 The authorization adapter must use authenticated server-side identity and merchant roles. Never trust an actor ID sent by a customer.
@@ -105,6 +94,6 @@ await egyPay.verifyPayment({
 
 Only this authorized transition moves the intent to <code>PAID</code> and appends the fulfillment-facing <code>payment.paid</code> event to the outbox.
 
-## Keep the pool healthy
+## Keep payment storage transactional
 
-The application owns the pool lifecycle. Run migrations during deployment, reuse the pool for requests, and close it during graceful shutdown. See [PostgreSQL storage](/docs/postgres) for transaction and migration details.
+The application owns database connections and migrations. Its storage implementation must commit payment state, idempotency results, audit records, and outbox events atomically. See the [storage contract](/docs/storage) for details.

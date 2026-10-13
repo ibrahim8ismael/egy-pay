@@ -12,7 +12,7 @@ The central rule is simple: a customer report is not settlement proof.
 - Payment intents tied to your application’s order IDs.
 - Customer claims recorded as <code>PAID_UNVERIFIED</code>.
 - Authorized verification that records provenance before moving an intent to <code>PAID</code>.
-- Transactional PostgreSQL storage, idempotent commands, an audit trail, and an outbox.
+- A transactional storage contract, idempotent commands, an audit trail, and an outbox.
 - Conservative matching of trusted transaction rows for review.
 
 ## What your application owns
@@ -21,9 +21,9 @@ Your host app authenticates users, authorizes merchant and order access, calcula
 
 ## Start here
 
-- [Set up the packages and PostgreSQL](/docs/getting-started)
+- [Install egy-pay and connect your storage](/docs/getting-started)
 - [Understand the payment lifecycle](/docs/payment-lifecycle)
 - [Integrate the core with your framework](/docs/frameworks)
 - [Give an AI coding agent a setup prompt](/docs/ai-agents)
 
-> **Project status:** `@ibrahim.one/core` and `@ibrahim.one/storage-postgres` are published on npm at `0.1.0`. Vodafone Cash and InstaPay are manual methods. egy-pay does not move money, connect to unofficial provider APIs, or verify transfers automatically.
+> **Project status:** `egy-pay@0.1.1` is published on npm as one TypeScript package. Your application supplies the transactional storage implementation. Vodafone Cash and InstaPay are manual methods. egy-pay does not move money, connect to unofficial provider APIs, or verify transfers automatically.
