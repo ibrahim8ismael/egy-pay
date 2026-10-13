@@ -1,0 +1,49 @@
+---
+title: Payment lifecycle
+description: A claim remains unverified until an authorized trusted review confirms it.
+---
+
+## The state machine
+
+~~~text
+AWAITING_PAYMENT
+  ├─ customer submits claim ───────► PAID_UNVERIFIED
+  ├─ authorized cancellation ──────► CANCELLED
+  └─ deadline passes ──────────────► EXPIRED
+
+PAID_UNVERIFIED
+  ├─ authorized trusted approval ──► PAID
+  └─ authorized rejection ─────────► AWAITING_PAYMENT or EXPIRED
+~~~
+
+<code>PAID</code>, <code>EXPIRED</code>, and <code>CANCELLED</code> are terminal states in the current API.
+
+## What each state means
+
+| State | Meaning | Fulfillment |
+| --- | --- | --- |
+| <code>AWAITING_PAYMENT</code> | The intent is open and the customer can transfer. | Blocked |
+| <code>PAID_UNVERIFIED</code> | A customer claim was received; settlement is not confirmed. | Blocked |
+| <code>PAID</code> | An authorized reviewer approved the claim using a trusted source. | May proceed after the committed outbox event |
+| <code>EXPIRED</code> | The payment window ended without an active claim. | Blocked |
+| <code>CANCELLED</code> | An authorized actor cancelled the intent. | Blocked |
+
+## Safe sequence
+
+1. Your server creates the intent with a trusted amount, merchant, order, method, and idempotency key.
+2. Your app displays merchant-approved manual transfer instructions.
+3. A customer claim moves the intent to <code>PAID_UNVERIFIED</code>.
+4. A reviewer checks a source the merchant trusts outside the customer-facing flow.
+5. The privileged verification operation records who approved, what source they checked, and when.
+6. In the same transaction, the intent becomes <code>PAID</code> and the <code>payment.paid</code> outbox event is stored.
+7. Your fulfillment consumer handles that event after commit and deduplicates by event ID.
+
+A screenshot, a customer-entered reference, or a “paid” button is not trusted proof. A report must never trigger fulfillment or emit <code>payment.paid</code>.
+
+## Rejection and expiry
+
+Rejecting a claim before the intent deadline returns it to <code>AWAITING_PAYMENT</code>. Rejecting it after the deadline moves the intent to <code>EXPIRED</code>. An active <code>PAID_UNVERIFIED</code> claim remains reviewable after the deadline; expiration does not discard it.
+
+## Amounts
+
+Store EGP as integer piasters. Do not convert to floating-point pounds for comparisons or storage. The host application calculates the trusted order total and passes it to the core.

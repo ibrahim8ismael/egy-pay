@@ -1,0 +1,27 @@
+---
+title: Claude Code
+description: Project prompt for integrating egy-pay with Claude Code.
+---
+
+Paste this prompt into Claude Code at the application root. You can also adapt it for the project’s CLAUDE.md instructions.
+
+~~~text
+Help integrate egy-pay into this application. Use the official docs URL supplied by the project. If none is available, inspect the installed package source and types before writing code.
+
+Start by reading CLAUDE.md, AGENTS.md, and other repository instructions. Then inspect the framework, authentication, order model, database, package manager, and existing tests.
+
+Check package availability first: @egy-pay/core and @egy-pay/storage-postgres are private and unpublished today. Do not assume npm installation works or invent a package version. If the app cannot resolve the packages, stop before implementation and explain what authorized source or workspace access is needed.
+
+Preserve these rules:
+- Keep payment operations and secrets on the server.
+- Derive merchant, order, amount, currency, and recipient instructions from trusted server-side data.
+- Represent amounts as integer piasters.
+- Customer claims become PAID_UNVERIFIED only. Claims, screenshots, and customer references do not authorize fulfillment.
+- Put payment review behind server-side authentication and merchant authorization. Call verifyPayment with an actor derived from the authenticated session and provenance for the trusted source checked.
+- Fulfill only after the committed payment.paid outbox event. Deduplicate consumers by event ID.
+- PostgreSQL is the only implemented database adapter. Do not claim MySQL or MongoDB support.
+- Vodafone Cash and InstaPay are manual workflows. Do not add unofficial APIs or automatic verification.
+- Keep route/controller code thin and use the core as the single source of payment transitions.
+
+Make the smallest complete integration, add focused tests, run the repository checks, and summarize changed files, verification results, and remaining work.
+~~~

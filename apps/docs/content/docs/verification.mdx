@@ -1,0 +1,58 @@
+---
+title: Verification and audit
+description: Keep privileged review separate from customer claim submission.
+---
+
+## Separate public claims from privileged decisions
+
+A customer-facing endpoint may call <code>submitClaim</code>. A separate server-side route or job may call <code>verifyPayment</code> after authenticating the reviewer and checking their merchant role.
+
+The service should be constructed with a host-owned <code>VerificationAuthorizer</code>:
+
+~~~ts
+const verificationAuthorizer: VerificationAuthorizer = {
+  authorize: async ({ merchantId, actorId, sourceType, sourceReference }) =>
+    accessControl.canVerifyPayments({
+      merchantId,
+      actorId,
+      sourceType,
+      sourceReference,
+    }),
+};
+
+const egyPay = createEgyPay({
+  storage,
+  verificationAuthorizer,
+});
+~~~
+
+The authorizer must derive identity from trusted server-side context. Do not accept authorization fields from a customer request body.
+
+## Record provenance
+
+An approval includes explicit authorization metadata:
+
+~~~ts
+await egyPay.verifyPayment({
+  merchantId,
+  paymentIntentId,
+  paymentClaimId,
+  authorization: {
+    actorType: 'HUMAN',
+    actorId: authenticatedReviewer.id,
+    sourceType: 'merchant_statement',
+    sourceReference: checkedRow.id,
+    evidenceReference: null,
+  },
+  note: 'Matched against the merchant statement.',
+  idempotencyKey,
+});
+~~~
+
+The verification record is append-only. Keep source references bounded and avoid logging raw transaction references, wallet numbers, credentials, or evidence contents.
+
+## What trusted means
+
+For human review, “trusted” means the authorized merchant operator actually checked a source they control or otherwise trust. The SDK records the decision and its provenance; it cannot independently attest that the source is genuine.
+
+A future provider adapter must have an official, authorized source and must pass its authenticated identity through the host authorizer. A reconciliation match is a review result, not approval by itself.

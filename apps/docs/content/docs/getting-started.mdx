@@ -1,0 +1,117 @@
+---
+title: Getting started
+description: Add the core and PostgreSQL adapter to a Node.js application.
+---
+
+## Availability
+
+The packages are currently private and unpublished. The code examples below describe the implemented workspace API. To run them today, work from the egy-pay repository or an authorized workspace that includes these packages. Do not use a public npm install command yet.
+
+The core supports Node.js and TypeScript. PostgreSQL is the only implemented production storage adapter.
+
+## Install the workspace
+
+~~~bash
+git clone https://github.com/ibrahim8ismael/egy-pay.git
+cd egy-pay
+pnpm install
+~~~
+
+Create a dedicated PostgreSQL database, then apply the package migrations as a deployment step:
+
+~~~bash
+export EGY_PAY_DATABASE_URL='postgres://postgres:postgres@localhost:5432/egy_pay'
+pnpm --filter @egy-pay/storage-postgres migrate
+~~~
+
+Use a separate database for local development and tests. Never point the integration-test URL at production.
+
+## Construct the service
+
+Create one PostgreSQL pool per application process. Reuse it across requests and close it when the process shuts down.
+
+~~~ts
+import { Pool } from 'pg';
+import { createEgyPay } from '@egy-pay/core';
+import type { VerificationAuthorizer } from '@egy-pay/core';
+import { migratePostgres, PostgresPaymentStore } from '@egy-pay/storage-postgres';
+
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+
+const verificationAuthorizer: VerificationAuthorizer = {
+  authorize: async ({ merchantId, actorId, sourceType, sourceReference }) =>
+    permissions.canVerifyPayments({
+      merchantId,
+      actorId,
+      sourceType,
+      sourceReference,
+    }),
+};
+
+const storage = new PostgresPaymentStore(pool);
+const egyPay = createEgyPay({ storage, verificationAuthorizer });
+
+// Run migrations in a deployment step where possible.
+await migratePostgres(pool);
+~~~
+
+The authorization adapter must use authenticated server-side identity and merchant roles. Never trust an actor ID sent by a customer.
+
+## Create an intent
+
+Load the order on the server and use its trusted total. Amounts are integer piasters: EGP 500.00 is 50,000 piasters.
+
+~~~ts
+const intent = await egyPay.createIntent({
+  merchantId: session.merchantId,
+  orderId: order.id,
+  amountPiasters: order.totalPiasters,
+  currency: 'EGP',
+  method: 'instapay',
+  idempotencyKey: 'order:' + order.id + ':payment-attempt:1',
+});
+~~~
+
+The selected method records which manual workflow the customer is using. Your host application displays its merchant-approved transfer instructions.
+
+## Record a customer claim
+
+After the customer says they sent the transfer, record a claim:
+
+~~~ts
+const claim = await egyPay.submitClaim({
+  merchantId: session.merchantId,
+  paymentIntentId: intent.id,
+  customerId: session.customerId,
+  customerReference: form.transactionReference,
+  idempotencyKey: 'intent:' + intent.id + ':claim:1',
+});
+~~~
+
+The intent becomes <code>PAID_UNVERIFIED</code>. Keep order fulfillment blocked while it is in that state.
+
+## Verify through a trusted review
+
+A privileged server-side route can request verification after a reviewer checks a trusted source. The injected authorizer must approve the actor and source.
+
+~~~ts
+await egyPay.verifyPayment({
+  merchantId: session.merchantId,
+  paymentIntentId: intent.id,
+  paymentClaimId: claim.id,
+  authorization: {
+    actorType: 'HUMAN',
+    actorId: reviewer.id,
+    sourceType: 'merchant_statement',
+    sourceReference: 'statement-row-4',
+    evidenceReference: null,
+  },
+  idempotencyKey: 'intent:' + intent.id + ':verification:1',
+});
+~~~
+
+Only this authorized transition moves the intent to <code>PAID</code> and appends the fulfillment-facing <code>payment.paid</code> event to the outbox.
+
+## Keep the pool healthy
+
+The application owns the pool lifecycle. Run migrations during deployment, reuse the pool for requests, and close it during graceful shutdown. See [PostgreSQL storage](/docs/postgres) for transaction and migration details.

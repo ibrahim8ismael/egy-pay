@@ -1,0 +1,25 @@
+---
+title: Manual transfer workflows
+description: Use Vodafone Cash and InstaPay as merchant-run transfer methods.
+---
+
+## Supported methods
+
+The current domain accepts <code>vodafone_cash</code> and <code>instapay</code>. They represent manual transfer workflows. egy-pay does not create provider checkout sessions or move funds.
+
+Your application owns the recipient instructions: wallet or account details, labels, customer-facing copy, and any merchant-specific transfer steps. Load those values from trusted server-side configuration and display them to the customer.
+
+## Customer experience
+
+1. Your backend creates a payment intent from the trusted order amount.
+2. Your app shows the configured transfer instructions for the selected method.
+3. The customer makes the transfer in their own wallet or banking app.
+4. The customer submits a claim in your application.
+5. Your app shows that the claim is awaiting review and keeps fulfillment blocked.
+6. A merchant reviewer checks a trusted transaction source.
+
+Do not ask customers to submit wallet credentials, banking passwords, SMS messages, or payment-card data. Keep uploaded evidence in a separately access-controlled store and pass only an evidence reference to egy-pay.
+
+## No unofficial integrations
+
+There is no bundled Vodafone Cash or InstaPay network connector. Do not rely on reverse-engineered APIs, scrape consumer applications, read SMS inboxes, or infer settlement from screenshots. Add automatic verification only when the merchant has an official, authorized, and tested transaction source.

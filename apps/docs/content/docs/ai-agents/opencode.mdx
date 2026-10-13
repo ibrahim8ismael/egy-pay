@@ -1,0 +1,27 @@
+---
+title: OpenCode
+description: Project prompt for integrating egy-pay with OpenCode.
+---
+
+Paste this prompt into an OpenCode session at the application root, or adapt it for the project’s agent instructions.
+
+~~~text
+Integrate egy-pay into the current application. Use the official docs URL supplied by the project. If none is available, inspect this repository and the actual installed egy-pay types before making changes.
+
+First read AGENTS.md, CLAUDE.md, and any local project guidance. Identify the existing framework, auth model, order source, database, package manager, and test commands.
+
+Confirm that @egy-pay/core and @egy-pay/storage-postgres are resolvable before proposing installation. These packages are private and unpublished today. Do not fabricate an npm package or version. If dependencies are not available, stop and explain what authorized workspace or source access is required.
+
+Follow these constraints:
+- Keep database access and payment operations server-side.
+- Use server-trusted merchant, order, amount, currency, and recipient data; ignore client totals.
+- Use integer piasters for EGP amounts.
+- A customer report becomes PAID_UNVERIFIED and must never trigger fulfillment.
+- Protect verifyPayment with server authentication and merchant authorization. Pass an actor identity from trusted session context and record the trusted source reviewed.
+- Start fulfillment only from the committed payment.paid outbox event and deduplicate by stable event ID.
+- PostgreSQL is the only implemented production adapter. MySQL and MongoDB adapters are not available.
+- Vodafone Cash and InstaPay remain manual workflows. Never invent provider endpoints or claim automatic verification.
+- Let the core enforce payment transitions; do not update payment status directly in route handlers.
+
+Implement only what the existing app needs. Add focused tests, run the available checks, and report implementation details, results, and blockers.
+~~~

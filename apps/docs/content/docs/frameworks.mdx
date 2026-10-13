@@ -1,0 +1,53 @@
+---
+title: Framework integration
+description: Call the headless service from your server-side framework.
+---
+
+## Framework status
+
+The core has no HTTP framework dependency. A Node.js server can construct the service and call it from Next.js Route Handlers, Express, NestJS, tRPC, or another host.
+
+Framework adapters and runnable examples are not included yet. The snippets here show the integration boundary; helper functions and application-specific authentication are placeholders.
+
+## Next.js Route Handler shape
+
+~~~ts
+export async function POST(request: Request) {
+  const session = await requireMerchantSession(request);
+  const input = await request.json();
+
+  const order = await orders.getOwnedOrder({
+    merchantId: session.merchantId,
+    orderId: input.orderId,
+  });
+
+  const intent = await egyPay.createIntent({
+    merchantId: session.merchantId,
+    orderId: order.id,
+    amountPiasters: order.totalPiasters,
+    currency: 'EGP',
+    method: input.method,
+    idempotencyKey: 'order:' + order.id + ':payment-attempt:1',
+  });
+
+  return Response.json(intent, { status: 201 });
+}
+~~~
+
+Validate the request shape, authorize order ownership, and calculate the amount from your server-side order record. Do not trust a client-provided amount or merchant ID.
+
+## Express
+
+Use authentication and merchant-scope middleware before the route. The handler loads the trusted order, calls the same core API, and maps the result to an HTTP response. Keep error translation in the transport layer.
+
+## NestJS
+
+Register one service instance using Nest providers. Guards establish identity and verify merchant roles; controllers validate transport input and delegate to the core. Keep database pool creation in the application module and close it during application shutdown.
+
+## tRPC
+
+Use middleware to establish authenticated user and merchant context. Procedures validate input and call the same service methods. Keep privileged verification procedures separate from customer claim procedures.
+
+## Never move payment rules into the route
+
+Every framework should call the same core API. Do not write payment status directly from a controller or handler. A claim only records <code>PAID_UNVERIFIED</code>; fulfillment waits for the committed, confirmed <code>payment.paid</code> event.

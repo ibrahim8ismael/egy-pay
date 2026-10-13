@@ -1,0 +1,14 @@
+{
+  "title": "Guide",
+  "pages": [
+    "index",
+    "getting-started",
+    "payment-lifecycle",
+    "manual-transfers",
+    "verification",
+    "postgres",
+    "outbox-reconciliation",
+    "frameworks",
+    "ai-agents"
+  ]
+}

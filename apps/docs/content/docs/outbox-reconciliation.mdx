@@ -1,0 +1,34 @@
+---
+title: Outbox and reconciliation
+description: Deliver confirmed events safely and use source matching only as a review aid.
+---
+
+## Deliver events after commit
+
+The adapter stores payment events in the outbox in the same transaction as their state change. Use <code>dispatchOutbox</code> from a worker or scheduled job to publish committed events:
+
+~~~ts
+const result = await dispatchOutbox({
+  store: new PostgresPaymentStore(pool),
+  publish: async (event) => {
+    await eventBus.publish({
+      id: event.id,
+      type: event.type,
+      payload: event.payload,
+    });
+  },
+  limit: 25,
+});
+~~~
+
+Delivery is at least once. A worker can publish successfully and stop before acknowledging the event, so consumers must deduplicate by the stable event ID. Do not fulfill an order inside the payment transaction.
+
+Only the confirmed <code>payment.paid</code> event is fulfillment-facing. A claim-reported event means that a customer made a claim; it does not mean the funds arrived.
+
+## Record a trusted transaction match
+
+<code>reconcileTrustedTransaction</code> accepts a transaction row only after the host authorizer approves its trusted adapter identity and source. Matching compares merchant, exact customer reference, integer amount, currency, method, and the intent’s time window.
+
+The result is <code>MATCHED</code>, <code>AMBIGUOUS</code>, or <code>UNMATCHED</code>. A match is a review aid: reconciliation does not approve the claim, change the payment state, or emit <code>payment.paid</code>. An authorized reviewer must still call <code>verifyPayment</code>.
+
+The SDK does not connect to a bank or wallet statement. The host owns source access, authentication, and import authorization.

@@ -6,7 +6,9 @@
   "scripts": {
     "build": "pnpm --recursive --if-present run build",
     "typecheck": "pnpm --recursive --if-present run typecheck",
-    "test": "pnpm --recursive --if-present run test"
+    "test": "pnpm --recursive --if-present run test",
+    "docs:dev": "pnpm --filter @egy-pay/docs dev",
+    "docs:build": "pnpm --filter @egy-pay/docs build"
   },
   "devDependencies": {
     "typescript": "7.0.2"
