@@ -3,28 +3,21 @@ title: Getting started
 description: Add the core and PostgreSQL adapter to a Node.js application.
 ---
 
-## Availability
+## Install
 
-The packages are currently private and unpublished. The code examples below describe the implemented workspace API. To run them today, work from the egy-pay repository or an authorized workspace that includes these packages. Do not use a public npm install command yet.
-
-The core supports Node.js and TypeScript. PostgreSQL is the only implemented production storage adapter.
-
-## Install the workspace
+Install the public npm packages and PostgreSQL client in your application:
 
 ~~~bash
-git clone https://github.com/ibrahim8ismael/egy-pay.git
-cd egy-pay
-pnpm install
+npm install @ibrahim.one/core @ibrahim.one/storage-postgres pg
 ~~~
 
-Create a dedicated PostgreSQL database, then apply the package migrations as a deployment step:
+The core supports Node.js 20 or newer and TypeScript. PostgreSQL is the only included production storage adapter.
 
-~~~bash
-export EGY_PAY_DATABASE_URL='postgres://postgres:postgres@localhost:5432/egy_pay'
-pnpm --filter @egy-pay/storage-postgres migrate
-~~~
+## Database migrations
 
-Use a separate database for local development and tests. Never point the integration-test URL at production.
+Create a dedicated PostgreSQL database and run migratePostgres(pool) from a deployment script before serving requests. The function applies pending migrations transactionally. Create one pool per application process and close it during graceful shutdown.
+
+Use a separate database for local development and tests. Never point an integration-test database URL at production.
 
 ## Construct the service
 
@@ -32,9 +25,9 @@ Create one PostgreSQL pool per application process. Reuse it across requests and
 
 ~~~ts
 import { Pool } from 'pg';
-import { createEgyPay } from '@egy-pay/core';
-import type { VerificationAuthorizer } from '@egy-pay/core';
-import { migratePostgres, PostgresPaymentStore } from '@egy-pay/storage-postgres';
+import { createEgyPay } from '@ibrahim.one/core';
+import type { VerificationAuthorizer } from '@ibrahim.one/core';
+import { migratePostgres, PostgresPaymentStore } from '@ibrahim.one/storage-postgres';
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 

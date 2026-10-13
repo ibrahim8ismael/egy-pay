@@ -1,6 +1,12 @@
-# @egy-pay/storage-postgres
+# @ibrahim.one/storage-postgres
 
 The first production persistence adapter for egy-pay. It implements the core transactional storage port using node-postgres and PostgreSQL.
+
+## Install
+
+~~~bash
+npm install @ibrahim.one/core @ibrahim.one/storage-postgres pg
+~~~
 
 ## Setup
 
@@ -8,8 +14,8 @@ The application owns the pool lifecycle and should create one pool per applicati
 
 ```ts
 import { Pool } from "pg";
-import { createEgyPay } from "@egy-pay/core";
-import { migratePostgres, PostgresPaymentStore } from "@egy-pay/storage-postgres";
+import { createEgyPay } from "@ibrahim.one/core";
+import { migratePostgres, PostgresPaymentStore } from "@ibrahim.one/storage-postgres";
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 await migratePostgres(pool);
@@ -20,7 +26,7 @@ const egyPay = createEgyPay({
 });
 ```
 
-Run migrations as a deployment step where possible. For a CLI migration, set `EGY_PAY_DATABASE_URL` and run `pnpm --filter @egy-pay/storage-postgres migrate`. Do not run production migrations automatically on every web-server startup unless that is an explicit deployment policy.
+Run migrations as a deployment step where possible. For a CLI migration, set `EGY_PAY_DATABASE_URL` and run `pnpm --filter @ibrahim.one/storage-postgres migrate`. Do not run production migrations automatically on every web-server startup unless that is an explicit deployment policy.
 
 ## Guarantees
 
@@ -38,7 +44,7 @@ Run migrations as a deployment step where possible. For a CLI migration, set `EG
 Delivery is **at-least-once**. A publisher or downstream consumer may receive the same event more than once if delivery succeeded but the acknowledgement was lost. Deduplicate by the stable `event.id` before triggering side effects such as fulfillment. Run `dispatchOutbox` from a worker or scheduled job; do not invoke fulfillment from inside a payment transaction.
 
 ```ts
-import { dispatchOutbox } from "@egy-pay/core";
+import { dispatchOutbox } from "@ibrahim.one/core";
 
 const result = await dispatchOutbox({
   store: new PostgresPaymentStore(pool),
@@ -63,6 +69,6 @@ A match is only a review result. Reconciliation does not change `PAID_UNVERIFIED
 
 ## Integration tests
 
-Set `EGY_PAY_TEST_DATABASE_URL` to a dedicated test database URL and run `pnpm --filter @egy-pay/storage-postgres test`. Tests create a uniquely named schema and drop only that schema afterward. If the variable is absent, PostgreSQL integration tests are reported as skipped.
+Set `EGY_PAY_TEST_DATABASE_URL` to a dedicated test database URL and run `pnpm --filter @ibrahim.one/storage-postgres test`. Tests create a uniquely named schema and drop only that schema afterward. If the variable is absent, PostgreSQL integration tests are reported as skipped.
 
 Never point the integration-test variable at a production database. The test suite creates and drops its own schema.

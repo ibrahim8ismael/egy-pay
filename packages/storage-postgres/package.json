@@ -1,7 +1,6 @@
 {
-  "name": "@egy-pay/storage-postgres",
+  "name": "@ibrahim.one/storage-postgres",
   "version": "0.1.0",
-  "private": true,
   "description": "Transactional PostgreSQL adapter for egy-pay.",
   "type": "module",
   "engines": {
@@ -20,7 +19,7 @@
     }
   },
   "dependencies": {
-    "@egy-pay/core": "workspace:*",
+    "@ibrahim.one/core": "workspace:*",
     "pg": "8.23.0",
     "@types/pg": "8.23.1"
   },
@@ -29,5 +28,24 @@
     "typecheck": "tsc --noEmit -p tsconfig.build.json",
     "test": "pnpm run build && node --test test/*.test.mjs",
     "migrate": "pnpm run build && node scripts/migrate.mjs"
-  }
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ibrahim8ismael/egy-pay.git",
+    "directory": "packages/storage-postgres"
+  },
+  "homepage": "https://egy-pay.vercel.app/docs",
+  "bugs": {
+    "url": "https://github.com/ibrahim8ismael/egy-pay/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "egypt",
+    "payments",
+    "payment-workflow",
+    "typescript"
+  ]
 }

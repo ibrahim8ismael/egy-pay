@@ -10,7 +10,7 @@ Integrate egy-pay into the current application. Use the official docs at https:/
 
 First read AGENTS.md, CLAUDE.md, and any local project guidance. Identify the existing framework, auth model, order source, database, package manager, and test commands.
 
-Confirm that @egy-pay/core and @egy-pay/storage-postgres are resolvable before proposing installation. These packages are private and unpublished today. Do not fabricate an npm package or version. If dependencies are not available, stop and explain what authorized workspace or source access is required.
+Install @ibrahim.one/core and @ibrahim.one/storage-postgres from npm with the application's package manager; add pg directly when the application imports Pool. Do not clone the egy-pay repository as an application dependency. If npm cannot resolve a package, report the exact registry error instead of guessing a version.
 
 Follow these constraints:
 - Keep database access and payment operations server-side.

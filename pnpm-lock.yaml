@@ -65,7 +65,7 @@ importers:
 
   packages/storage-postgres:
     dependencies:
-      '@egy-pay/core':
+      '@ibrahim.one/core':
         specifier: workspace:*
         version: link:../core
       '@types/pg':

@@ -21,7 +21,7 @@
   <a href="#roadmap">Roadmap</a>
 </p>
 
-> **Project status: early development.** The SDK is **not yet released on npm**. The core API, PostgreSQL adapter, outbox dispatcher, and trusted-record matching primitives are implemented locally, but packages remain private and unpublished; examples may evolve before a stable release.
+> **Project status: v0.1.0 released.** Install the core and PostgreSQL adapter from npm. The API is early and may evolve before a stable release.
 
 ## Why egy-pay?
 
@@ -79,14 +79,20 @@ Authorized review or verified provider transaction
 
 **Important:** A screenshot, transfer reference, or customer-submitted confirmation **cannot prove that funds arrived**. Only an authorized review of a trusted source or a verified provider callback can approve a payment. The merchant's backend remains responsible for authentication, authorization, order ownership, and calculating the payable amount.
 
-## Developer experience (proposed)
+## Install from npm
 
-The core and PostgreSQL adapter are implemented locally, but packages remain private and unpublished. This example assumes migrations have run and a server-side PostgreSQL pool is available:
+Install the headless core and PostgreSQL adapter in your application:
+
+```sh
+npm install @ibrahim.one/core @ibrahim.one/storage-postgres pg
+```
+
+This example assumes a server-side PostgreSQL pool is available:
 
 ```ts
 import { Pool } from "pg";
-import { createEgyPay } from "@egy-pay/core";
-import { migratePostgres, PostgresPaymentStore } from "@egy-pay/storage-postgres";
+import { createEgyPay } from "@ibrahim.one/core";
+import { migratePostgres, PostgresPaymentStore } from "@ibrahim.one/storage-postgres";
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 await migratePostgres(pool);
@@ -141,7 +147,7 @@ The intended architecture is **headless** and **framework-agnostic**:
 Node.js / Next.js Route Handlers / tRPC / Express / Fastify / NestJS
                               │
                               ▼
-                       @egy-pay/core
+                       @ibrahim.one/core
                   ┌───────────┼───────────┐
                   │           │           │
            Payment logic  Verification  Reconciliation
@@ -158,12 +164,12 @@ The core should depend on **domain interfaces**, not on a particular web framewo
 
 | Package | Role | Status |
 | --- | --- | --- |
-| `@egy-pay/core` | Payment lifecycle, validation, claims, trusted verification, outbox dispatch, reconciliation matching | Implemented privately; unpublished |
-| `@egy-pay/storage-postgres` | Transactional PostgreSQL persistence | Implemented locally; unpublished |
-| `@egy-pay/react` | Optional payment instructions and claim UI | Future |
-| `@egy-pay/paymob` | Authorized provider adapter, if supported | Future |
+| `@ibrahim.one/core` | Payment lifecycle, validation, claims, trusted verification, outbox dispatch, reconciliation matching | Published on npm: `0.1.0` |
+| `@ibrahim.one/storage-postgres` | Transactional PostgreSQL persistence | Published on npm: `0.1.0` |
+| `@ibrahim.one/react` | Optional payment instructions and claim UI | Future |
+| `@ibrahim.one/paymob` | Authorized provider adapter, if supported | Future |
 
-Package names are proposals and are **not a claim of npm availability or ownership**.
+The core and PostgreSQL adapter are available under the npm account scope `@ibrahim.one`.
 
 ## Design principles
 

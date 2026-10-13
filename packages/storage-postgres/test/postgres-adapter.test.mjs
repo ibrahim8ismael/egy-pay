@@ -8,7 +8,7 @@ import {
   StorageConflictError,
   createEgyPay,
   dispatchOutbox,
-} from "@egy-pay/core";
+} from "@ibrahim.one/core";
 import { migratePostgres, PostgresPaymentStore } from "../dist/index.js";
 
 const databaseUrl = process.env.EGY_PAY_TEST_DATABASE_URL;

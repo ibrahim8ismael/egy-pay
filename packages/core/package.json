@@ -1,13 +1,14 @@
 {
-  "name": "@egy-pay/core",
+  "name": "@ibrahim.one/core",
   "version": "0.1.0",
-  "private": true,
   "description": "Headless payment workflow domain and application services for egy-pay.",
   "type": "module",
   "engines": {
     "node": ">=20"
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -18,5 +19,24 @@
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit -p tsconfig.build.json",
     "test": "pnpm run build && node --test test/*.test.mjs"
-  }
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ibrahim8ismael/egy-pay.git",
+    "directory": "packages/core"
+  },
+  "homepage": "https://egy-pay.vercel.app/docs",
+  "bugs": {
+    "url": "https://github.com/ibrahim8ismael/egy-pay/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "egypt",
+    "payments",
+    "payment-workflow",
+    "typescript"
+  ]
 }
