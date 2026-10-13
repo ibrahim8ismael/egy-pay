@@ -21,7 +21,7 @@
   <a href="#roadmap">Roadmap</a>
 </p>
 
-> **Project status: v0.1.1 released.** egy-pay is one TypeScript package. It provides payment and verification logic and connects to storage supplied by your application.
+> **Project status: v0.1.2 released.** egy-pay is one TypeScript package. It provides payment and verification logic and connects to storage supplied by your application.
 
 ## Why egy-pay?
 

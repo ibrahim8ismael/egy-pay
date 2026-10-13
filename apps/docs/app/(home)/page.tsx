@@ -81,7 +81,7 @@ export default function HomePage() {
           </article>
           <article className="principle">
             <h3>Writes are transactional</h3>
-            <p>PostgreSQL stores state changes, audit records, idempotency, and outbox events together.</p>
+            <p>Your application stores state changes, audit records, idempotency, and outbox events together using its existing database.</p>
           </article>
         </div>
       </section>

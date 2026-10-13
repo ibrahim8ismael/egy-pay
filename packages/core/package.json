@@ -1,6 +1,6 @@
 {
   "name": "egy-pay",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Headless payment workflow domain and application services for egy-pay.",
   "type": "module",
   "engines": {

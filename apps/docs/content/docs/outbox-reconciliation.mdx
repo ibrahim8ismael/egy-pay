@@ -9,7 +9,7 @@ The adapter stores payment events in the outbox in the same transaction as their
 
 ~~~ts
 const result = await dispatchOutbox({
-  store: new PostgresPaymentStore(pool),
+  store: paymentStore, // Your app's TransactionalPaymentStore implementation
   publish: async (event) => {
     await eventBus.publish({
       id: event.id,
