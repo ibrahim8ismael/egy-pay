@@ -4,11 +4,19 @@
   "private": true,
   "description": "Headless payment workflow domain and application services for egy-pay.",
   "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
   "files": ["dist"],
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit -p tsconfig.build.json",
+    "test": "pnpm run build && node --test test/*.test.mjs"
   }
 }

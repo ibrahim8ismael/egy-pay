@@ -20,7 +20,7 @@
   <a href="#roadmap">Roadmap</a>
 </p>
 
-> **Project status: planning / early development.** The SDK is **not yet released on npm**. Interfaces and examples below describe the proposed developer experience, not working or published APIs.
+> **Project status: early development.** The SDK is **not yet released on npm**. The initial core API is implemented locally but remains private and unpublished; examples below may evolve before a stable release.
 
 ## Why egy-pay?
 
@@ -66,7 +66,7 @@ Customer transfers using their wallet / banking app
 Customer submits a transaction claim
         │
         ▼
-Claim is recorded as UNDER_REVIEW (not PAID)
+Claim is recorded as PAID_UNVERIFIED (not PAID)
         │
         ▼
 Authorized review or verified provider transaction
@@ -80,33 +80,47 @@ Authorized review or verified provider transaction
 
 ## Developer experience (proposed)
 
-The following is **illustrative pseudocode**. It is not yet installable or implemented:
+The core API is implemented, but the package remains private and the PostgreSQL adapter is not available yet. This illustrative example assumes a server-side storage adapter that implements the transactional core contract:
 
 ```ts
-// Proposed @egy-pay/core API — subject to change.
 import { createEgyPay } from "@egy-pay/core";
 
-const payments = createEgyPay({ storage });
+// Supply an authorizer backed by your host application's server-side identity and roles.
+const egyPay = createEgyPay({ storage, verificationAuthorizer });
 
-const intent = await payments.createIntent({
+const intent = await egyPay.createIntent({
+  merchantId: "MERCHANT-1",
   orderId: "ORD-123",
-  amountMinor: 50000, // EGP 500.00
+  amountPiasters: 50000, // EGP 500.00
   currency: "EGP",
-  method: "vodafone_cash",
+  method: "instapay",
   idempotencyKey: "ORD-123:attempt-1",
 });
 
-// The customer claims to have transferred funds.
-await payments.submitClaim({
-  paymentId: intent.id,
-  transactionRef: "EXAMPLE-REF",
+const claim = await egyPay.submitClaim({
+  merchantId: "MERCHANT-1",
+  paymentIntentId: intent.id,
+  customerReference: "EXAMPLE-REF",
+  idempotencyKey: "ORD-123:claim-1",
 });
 
-// Later: a separate, authorized server-side verification flow
-// may confirm the payment using trusted evidence.
+// Privileged server-side code only, after a reviewer checked a trusted source.
+await egyPay.verifyPayment({
+  merchantId: "MERCHANT-1",
+  paymentIntentId: intent.id,
+  paymentClaimId: claim.id,
+  authorization: {
+    actorType: "HUMAN",
+    actorId: "reviewer-1",
+    sourceType: "merchant_statement",
+    sourceReference: "statement-row-4",
+    evidenceReference: null,
+  },
+  idempotencyKey: "ORD-123:verify-1",
+});
 ```
 
-The intent amount and recipient settings must come from **trusted server-side configuration**, not user-controlled checkout fields.
+The intent amount and recipient settings must come from **trusted server-side configuration**, not user-controlled checkout fields. The verification authorizer must derive actor identity from authenticated server-side context; never build it from request-body fields.
 
 ## Architecture
 
@@ -133,7 +147,7 @@ The core should depend on **domain interfaces**, not on a particular web framewo
 
 | Package | Role | Status |
 | --- | --- | --- |
-| `@egy-pay/core` | Payment lifecycle, validation, claims, reconciliation | Planned |
+| `@egy-pay/core` | Payment lifecycle, validation, claims, trusted verification | Implemented privately; unpublished |
 | `@egy-pay/storage-postgres` | Transactional PostgreSQL persistence | Planned |
 | `@egy-pay/react` | Optional payment instructions and claim UI | Future |
 | `@egy-pay/paymob` | Authorized provider adapter, if supported | Future |
