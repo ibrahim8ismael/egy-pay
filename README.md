@@ -17,6 +17,7 @@
   <a href="#why-egy-pay">Why egy-pay?</a> ·
   <a href="#how-it-works">How it works</a> ·
   <a href="#architecture">Architecture</a> ·
+  <a href="https://egy-pay.vercel.app/docs">Documentation</a> ·
   <a href="#roadmap">Roadmap</a>
 </p>
 
