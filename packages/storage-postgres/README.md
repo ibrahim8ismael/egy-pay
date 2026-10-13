@@ -31,6 +31,28 @@ Run migrations as a deployment step where possible. For a CLI migration, set `EG
 - PostgreSQL constraints enforce merchant-scoped relationships, supported initial methods/currency, valid statuses, and positive integer-piaster amounts.
 - The adapter uses the caller-provided pool and checks out one client for each transaction. The caller must close the pool during process shutdown.
 
+## Outbox delivery
+
+`dispatchOutbox` claims a bounded batch with short leases, commits those leases, and then calls the host publisher outside the database transaction. A successful call marks the event delivered. A failed call releases it with capped exponential backoff. Expired leases become available again if a worker stops before acknowledging an event.
+
+Delivery is **at-least-once**. A publisher or downstream consumer may receive the same event more than once if delivery succeeded but the acknowledgement was lost. Deduplicate by the stable `event.id` before triggering side effects such as fulfillment. Run `dispatchOutbox` from a worker or scheduled job; do not invoke fulfillment from inside a payment transaction.
+
+```ts
+import { dispatchOutbox } from "@egy-pay/core";
+
+const result = await dispatchOutbox({
+  store: new PostgresPaymentStore(pool),
+  publish: async (event) => {
+    await eventBus.publish({ id: event.id, type: event.type, payload: event.payload });
+  },
+  limit: 25,
+});
+
+// Monitor counts without logging payment payloads or customer references.
+metrics.outboxDelivered(result.delivered);
+metrics.outboxFailed(result.failed);
+```
+
 ## Integration tests
 
 Set `EGY_PAY_TEST_DATABASE_URL` to a dedicated test database URL and run `pnpm --filter @egy-pay/storage-postgres test`. Tests create a uniquely named schema and drop only that schema afterward. If the variable is absent, PostgreSQL integration tests are reported as skipped.

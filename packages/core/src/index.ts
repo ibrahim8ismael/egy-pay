@@ -43,10 +43,18 @@ export {
   type VerifyPaymentInput,
 } from "./application/service.js";
 export { hashRequest } from "./application/idempotency.js";
+export {
+  dispatchOutbox,
+  type DispatchOutboxInput,
+  type DispatchOutboxResult,
+} from "./application/outbox.js";
 export { systemClock, uuidGenerator, type Clock, type IdGenerator } from "./ports/runtime.js";
 export type { VerificationAuthorizationRequest, VerificationAuthorizer } from "./ports/authorization.js";
 export type {
+  ClaimOutboxEventsInput,
+  ClaimedOutboxEvent,
   IdempotentTransactionRequest,
+  OutboxDeliveryStore,
   PaymentTransaction,
   TransactionalPaymentStore,
 } from "./ports/storage.js";

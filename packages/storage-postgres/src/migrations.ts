@@ -1,10 +1,16 @@
 import { readFile } from "node:fs/promises";
 import type { Pool } from "pg";
 
-const INITIAL_MIGRATION = {
-  version: "001_initial",
-  url: new URL("../migrations/001_initial.sql", import.meta.url),
-};
+const MIGRATIONS = [
+  {
+    version: "001_initial",
+    url: new URL("../migrations/001_initial.sql", import.meta.url),
+  },
+  {
+    version: "002_outbox_delivery",
+    url: new URL("../migrations/002_outbox_delivery.sql", import.meta.url),
+  },
+];
 
 export async function migratePostgres(pool: Pool): Promise<void> {
   const client = await pool.connect();
@@ -13,22 +19,23 @@ export async function migratePostgres(pool: Pool): Promise<void> {
     await client.query("BEGIN");
     await client.query(
       "SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))",
-      ["egy-pay-schema-migrations", "initial"],
+      ["egy-pay-schema-migrations", "main"],
     );
     await client.query(
       "CREATE TABLE IF NOT EXISTS egy_pay_schema_migrations " +
         "(version text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT clock_timestamp())",
     );
-    const applied = await client.query(
-      "SELECT version FROM egy_pay_schema_migrations WHERE version = $1",
-      [INITIAL_MIGRATION.version],
-    );
-    if (applied.rowCount === 0) {
-      const sql = await readFile(INITIAL_MIGRATION.url, "utf8");
+    for (const migration of MIGRATIONS) {
+      const applied = await client.query(
+        "SELECT version FROM egy_pay_schema_migrations WHERE version = $1",
+        [migration.version],
+      );
+      if (applied.rows.length > 0) continue;
+      const sql = await readFile(migration.url, "utf8");
       await client.query(sql);
       await client.query(
         "INSERT INTO egy_pay_schema_migrations (version) VALUES ($1)",
-        [INITIAL_MIGRATION.version],
+        [migration.version],
       );
     }
     await client.query("COMMIT");

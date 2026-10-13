@@ -14,6 +14,7 @@ function cloneState(state) {
     claims: new Map(Array.from(state.claims, ([key, value]) => [key, clone(value)])),
     verifications: new Map(Array.from(state.verifications, ([key, value]) => [key, clone(value)])),
     events: new Map(Array.from(state.events, ([key, value]) => [key, clone(value)])),
+    deliveries: new Map(Array.from(state.deliveries, ([key, value]) => [key, clone(value)])),
     idempotency: new Map(Array.from(state.idempotency, ([key, value]) => [key, clone(value)])),
   };
 }
@@ -108,6 +109,13 @@ function transactionFor(state, consumeEventFailure) {
         throw new StorageConflictError("Payment event ID already exists.");
       }
       state.events.set(event.id, clone(event));
+      state.deliveries.set(event.id, {
+        availableAt: event.occurredAt,
+        attempt: 0,
+        leaseToken: null,
+        leaseUntil: null,
+        deliveredAt: null,
+      });
     },
   };
 }
@@ -118,6 +126,7 @@ export class InMemoryPaymentStore {
     claims: new Map(),
     verifications: new Map(),
     events: new Map(),
+    deliveries: new Map(),
     idempotency: new Map(),
   };
   #mutex = new Mutex();
@@ -172,12 +181,84 @@ export class InMemoryPaymentStore {
     });
   }
 
+  async claimOutboxEvents(input) {
+    return this.#mutex.run(async () => {
+      const draft = cloneState(this.#state);
+      const nowMs = Date.parse(input.now);
+      const eligible = Array.from(draft.events.values())
+        .filter((event) => {
+          const delivery = draft.deliveries.get(event.id);
+          return delivery &&
+            delivery.deliveredAt === null &&
+            Date.parse(delivery.availableAt) <= nowMs &&
+            (delivery.leaseUntil === null || Date.parse(delivery.leaseUntil) <= nowMs);
+        })
+        .sort((left, right) => left.occurredAt.localeCompare(right.occurredAt) || left.id.localeCompare(right.id))
+        .slice(0, input.limit);
+
+      const claimed = eligible.map((event) => {
+        const delivery = draft.deliveries.get(event.id);
+        delivery.attempt += 1;
+        delivery.leaseToken = input.leaseToken;
+        delivery.leaseUntil = input.leaseUntil;
+        return {
+          event: clone(event),
+          attempt: delivery.attempt,
+          leaseToken: input.leaseToken,
+          leaseUntil: input.leaseUntil,
+        };
+      });
+      this.#state = draft;
+      return claimed;
+    });
+  }
+
+  async markOutboxEventDelivered(input) {
+    return this.#mutex.run(async () => {
+      const draft = cloneState(this.#state);
+      const delivery = draft.deliveries.get(input.eventId);
+      if (
+        !delivery ||
+        delivery.deliveredAt !== null ||
+        delivery.leaseToken !== input.leaseToken ||
+        delivery.leaseUntil === null ||
+        Date.parse(delivery.leaseUntil) <= Date.parse(input.deliveredAt)
+      ) {
+        return false;
+      }
+      delivery.deliveredAt = input.deliveredAt;
+      delivery.leaseToken = null;
+      delivery.leaseUntil = null;
+      this.#state = draft;
+      return true;
+    });
+  }
+
+  async rescheduleOutboxEvent(input) {
+    return this.#mutex.run(async () => {
+      const draft = cloneState(this.#state);
+      const delivery = draft.deliveries.get(input.eventId);
+      if (!delivery || delivery.deliveredAt !== null || delivery.leaseToken !== input.leaseToken) {
+        return false;
+      }
+      delivery.availableAt = input.availableAt;
+      delivery.leaseToken = null;
+      delivery.leaseUntil = null;
+      this.#state = draft;
+      return true;
+    });
+  }
+
   snapshot() {
     return {
       intents: Array.from(this.#state.intents.values(), clone),
       claims: Array.from(this.#state.claims.values(), clone),
       verifications: Array.from(this.#state.verifications.values(), clone),
       events: Array.from(this.#state.events.values(), clone),
+      outboxDeliveries: Array.from(this.#state.deliveries, ([eventId, state]) => ({
+        eventId,
+        ...clone(state),
+      })),
       idempotency: Array.from(this.#state.idempotency.values(), clone),
     };
   }

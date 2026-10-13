@@ -8,6 +8,9 @@ import {
   type PaymentEvent,
   type PaymentIntent,
   type PaymentTransaction,
+  type OutboxDeliveryStore,
+  type ClaimedOutboxEvent,
+  type ClaimOutboxEventsInput,
   type TransactionalPaymentStore,
   type IdempotentTransactionRequest,
   type VerificationRecord,
@@ -16,11 +19,58 @@ import type { Pool, PoolClient } from "pg";
 
 type DbRow = Record<string, unknown>;
 
-export class PostgresPaymentStore implements TransactionalPaymentStore {
+export class PostgresPaymentStore implements TransactionalPaymentStore, OutboxDeliveryStore {
   public constructor(private readonly pool: Pool) {}
 
   public async transaction<T>(work: (transaction: PaymentTransaction) => Promise<T>): Promise<T> {
     return this.withTransaction((client) => work(createTransaction(client)));
+  }
+
+  public async claimOutboxEvents(input: ClaimOutboxEventsInput): Promise<ClaimedOutboxEvent[]> {
+    return this.withTransaction(async (client) => {
+      const result = await client.query<DbRow>(
+        "WITH candidates AS (" +
+          "SELECT id FROM egy_pay_payment_events " +
+          "WHERE delivered_at IS NULL AND available_at <= $1 " +
+          "AND (lease_until IS NULL OR lease_until <= $1) " +
+          "ORDER BY occurred_at, id FOR UPDATE SKIP LOCKED LIMIT $2" +
+          ") " +
+          "UPDATE egy_pay_payment_events AS event SET " +
+          "delivery_attempts = event.delivery_attempts + 1, lease_token = $3, lease_until = $4 " +
+          "FROM candidates WHERE event.id = candidates.id " +
+          "RETURNING event.id, event.merchant_id, event.payment_intent_id, event.type, " +
+          "event.occurred_at, event.schema_version, event.aggregate_version, event.payload, " +
+          "event.delivery_attempts, event.lease_token, event.lease_until",
+        [input.now, input.limit, input.leaseToken, input.leaseUntil],
+      );
+      return result.rows.map(mapClaimedOutboxEvent);
+    });
+  }
+
+  public async markOutboxEventDelivered(input: {
+    eventId: string;
+    leaseToken: string;
+    deliveredAt: string;
+  }): Promise<boolean> {
+    const result = await this.pool.query(
+      "UPDATE egy_pay_payment_events SET delivered_at = $3, lease_token = NULL, lease_until = NULL " +
+        "WHERE id = $1 AND lease_token = $2 AND lease_until > $3 AND delivered_at IS NULL",
+      [input.eventId, input.leaseToken, input.deliveredAt],
+    );
+    return result.rowCount === 1;
+  }
+
+  public async rescheduleOutboxEvent(input: {
+    eventId: string;
+    leaseToken: string;
+    availableAt: string;
+  }): Promise<boolean> {
+    const result = await this.pool.query(
+      "UPDATE egy_pay_payment_events SET available_at = $3, lease_token = NULL, lease_until = NULL " +
+        "WHERE id = $1 AND lease_token = $2 AND delivered_at IS NULL",
+      [input.eventId, input.leaseToken, input.availableAt],
+    );
+    return result.rowCount === 1;
   }
 
   public async runIdempotent<T>(
@@ -211,11 +261,12 @@ function createTransaction(client: PoolClient): PaymentTransaction {
       await client.query(
         "INSERT INTO egy_pay_payment_events " +
           "(id, merchant_id, payment_intent_id, type, occurred_at, schema_version, " +
-          "aggregate_version, payload) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)",
+          "aggregate_version, payload, available_at) " +
+          "VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9)",
         [
           event.id, event.merchantId, event.paymentIntentId, event.type,
           event.occurredAt, event.schemaVersion, event.aggregateVersion,
-          JSON.stringify(event.payload),
+          JSON.stringify(event.payload), event.occurredAt,
         ],
       );
     },
@@ -254,6 +305,29 @@ function mapPaymentClaim(row: DbRow): PaymentClaim {
     reportedAt: dbDate(row.reported_at, "reported_at"),
     updatedAt: dbDate(row.updated_at, "updated_at"),
     version: dbSafeInteger(row.version, "version"),
+  };
+}
+
+function mapClaimedOutboxEvent(row: DbRow): ClaimedOutboxEvent {
+  const payload = dbObject(row.payload, "payload");
+  const schemaVersion = dbSafeInteger(row.schema_version, "schema_version");
+  if (schemaVersion !== 1) {
+    throw new StorageConflictError("Unsupported payment event schema version.");
+  }
+  return {
+    event: {
+      id: dbText(row, "id"),
+      merchantId: dbText(row, "merchant_id"),
+      paymentIntentId: dbText(row, "payment_intent_id"),
+      type: dbText(row, "type") as PaymentEvent["type"],
+      occurredAt: dbDate(row.occurred_at, "occurred_at"),
+      schemaVersion: 1,
+      aggregateVersion: dbSafeInteger(row.aggregate_version, "aggregate_version"),
+      payload,
+    },
+    attempt: dbSafeInteger(row.delivery_attempts, "delivery_attempts"),
+    leaseToken: dbText(row, "lease_token"),
+    leaseUntil: dbDate(row.lease_until, "lease_until"),
   };
 }
 

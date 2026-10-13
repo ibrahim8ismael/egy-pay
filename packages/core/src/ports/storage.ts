@@ -21,6 +21,39 @@ export interface PaymentTransaction {
   appendPaymentEvent(event: PaymentEvent): Promise<void>;
 }
 
+export interface ClaimOutboxEventsInput {
+  now: string;
+  leaseUntil: string;
+  limit: number;
+  leaseToken: string;
+}
+
+export interface ClaimedOutboxEvent {
+  event: PaymentEvent;
+  attempt: number;
+  leaseToken: string;
+  leaseUntil: string;
+}
+
+/**
+ * Delivery is at-least-once. A consumer must deduplicate using event.id.
+ * Implementations claim rows transactionally, then let the dispatcher call
+ * the consumer after that transaction has committed.
+ */
+export interface OutboxDeliveryStore {
+  claimOutboxEvents(input: ClaimOutboxEventsInput): Promise<ClaimedOutboxEvent[]>;
+  markOutboxEventDelivered(input: {
+    eventId: string;
+    leaseToken: string;
+    deliveredAt: string;
+  }): Promise<boolean>;
+  rescheduleOutboxEvent(input: {
+    eventId: string;
+    leaseToken: string;
+    availableAt: string;
+  }): Promise<boolean>;
+}
+
 export interface IdempotentTransactionRequest {
   scope: IdempotencyScope & { operation: IdempotencyOperation };
   requestHash: string;

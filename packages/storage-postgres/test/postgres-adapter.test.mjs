@@ -7,6 +7,7 @@ import {
   IdempotencyConflictError,
   StorageConflictError,
   createEgyPay,
+  dispatchOutbox,
 } from "@egy-pay/core";
 import { migratePostgres, PostgresPaymentStore } from "../dist/index.js";
 
@@ -101,10 +102,11 @@ test(
 
       await t.test("migration applies once and can be rerun", async () => {
         const result = await pool.query(
-          "SELECT count(*)::int AS count FROM egy_pay_schema_migrations WHERE version = $1",
-          ["001_initial"],
+          "SELECT count(*)::int AS count FROM egy_pay_schema_migrations " +
+            "WHERE version IN ($1, $2)",
+          ["001_initial", "002_outbox_delivery"],
         );
-        assert.equal(result.rows[0].count, 1);
+        assert.equal(result.rows[0].count, 2);
       });
 
       await t.test("persists verified payment and audit/outbox atomically", async () => {
@@ -125,6 +127,100 @@ test(
         assert.equal(await count("egy_pay_verification_records"), 1);
         assert.equal(await count("egy_pay_payment_events", "type = $1", ["payment.paid"]), 1);
         assert.equal(await count("egy_pay_idempotency_records"), 3);
+      });
+
+      await t.test("delivers outbox rows after claim and acknowledges them", async () => {
+        await reset();
+        const egyPay = service();
+        await egyPay.createIntent(intentInput());
+        const delivered = [];
+        const result = await dispatchOutbox({
+          store: storage,
+          publish: async (event) => delivered.push(event.id),
+          clock: { now: () => new Date(Date.now() + 5_000) },
+          ids: { nextId: () => "dispatcher-lease" },
+        });
+
+        assert.equal(result.claimed, 1);
+        assert.equal(result.delivered, 1);
+        assert.equal(await count("egy_pay_payment_events", "delivered_at IS NOT NULL"), 1);
+        assert.equal(delivered.length, 1);
+        assert.equal((await dispatchOutbox({
+          store: storage,
+          publish: async (event) => delivered.push(event.id),
+          clock: { now: () => new Date(Date.now() + 5_000) },
+          ids: { nextId: () => "dispatcher-lease-2" },
+        })).claimed, 0);
+      });
+
+      await t.test("retries failed event delivery after its backoff using the same event ID", async () => {
+        await reset();
+        await service().createIntent(intentInput());
+        let now = new Date(Date.now() + 5_000);
+        const clock = { now: () => new Date(now) };
+        const eventIds = [];
+        const failed = await dispatchOutbox({
+          store: storage,
+          publish: async (event) => {
+            eventIds.push(event.id);
+            throw new Error("temporary publisher failure");
+          },
+          clock,
+          ids: { nextId: () => "failed-lease" },
+        });
+        const tooSoon = await dispatchOutbox({
+          store: storage,
+          publish: async () => assert.fail("event should still be in backoff"),
+          clock,
+          ids: { nextId: () => "early-lease" },
+        });
+        now = new Date(now.getTime() + 1_000);
+        const retried = await dispatchOutbox({
+          store: storage,
+          publish: async (event) => eventIds.push(event.id),
+          clock,
+          ids: { nextId: () => "retry-lease" },
+        });
+
+        assert.equal(failed.failed, 1);
+        assert.equal(tooSoon.claimed, 0);
+        assert.equal(retried.delivered, 1);
+        assert.equal(eventIds[0], eventIds[1]);
+      });
+
+      await t.test("parallel dispatchers claim separate rows with SKIP LOCKED", async () => {
+        await reset();
+        const egyPay = service();
+        await egyPay.createIntent(intentInput({ idempotencyKey: "create-pg-a" }));
+        await egyPay.createIntent(intentInput({
+          orderId: "order-pg-b",
+          idempotencyKey: "create-pg-b",
+        }));
+        const deliveredIds = [];
+        const clock = { now: () => new Date(Date.now() + 5_000) };
+        const publish = async (event) => {
+          deliveredIds.push(event.id);
+          await new Promise((resolve) => setTimeout(resolve, 25));
+        };
+        const [first, second] = await Promise.all([
+          dispatchOutbox({
+            store: storage,
+            publish,
+            limit: 1,
+            clock,
+            ids: { nextId: () => "parallel-lease-a" },
+          }),
+          dispatchOutbox({
+            store: storage,
+            publish,
+            limit: 1,
+            clock,
+            ids: { nextId: () => "parallel-lease-b" },
+          }),
+        ]);
+
+        assert.equal(first.delivered + second.delivered, 2);
+        assert.equal(new Set(deliveredIds).size, 2);
       });
 
       await t.test("failed outbox insert rolls back claim, verification, state, and idempotency", async () => {

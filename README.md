@@ -20,7 +20,7 @@
   <a href="#roadmap">Roadmap</a>
 </p>
 
-> **Project status: early development.** The SDK is **not yet released on npm**. The core API and first PostgreSQL adapter are implemented locally, but both packages remain private and unpublished; examples may evolve before a stable release.
+> **Project status: early development.** The SDK is **not yet released on npm**. The core API, PostgreSQL adapter, and first outbox dispatcher are implemented locally, but packages remain private and unpublished; examples may evolve before a stable release.
 
 ## Why egy-pay?
 
@@ -187,7 +187,8 @@ Package names are proposals and are **not a claim of npm availability or ownersh
 
 - [x] **v0.1 core** — Typed domain models, payment-intent lifecycle, claim submission, authorized verification decisions, and a transactional storage contract.
 - [x] **PostgreSQL adapter** — First production persistence adapter with migrations, atomic idempotency, outbox writes, and concurrency integration tests.
-- [ ] **v0.2** — Outbox delivery, trusted-source reconciliation primitives, and reconciliation end-to-end tests.
+- [x] **Outbox delivery** — Leased PostgreSQL batches, bounded retries, and at-least-once delivery using stable event IDs.
+- [ ] **Trusted-source reconciliation** — Conservative record matching, duplicate handling, ambiguity review, and integration tests.
 - [ ] **v0.3** — Optional React UI, import tooling, and additional documentation/examples.
 - [ ] **Later** — Authorized payment-provider adapters and webhook signature verification where integration access exists.
 

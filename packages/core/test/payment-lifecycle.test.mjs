@@ -8,6 +8,7 @@ import {
   ValidationError,
   VerificationNotAuthorizedError,
   createEgyPay,
+  dispatchOutbox,
 } from "../dist/index.js";
 import { InMemoryPaymentStore } from "./support/in-memory-store.mjs";
 
@@ -344,4 +345,99 @@ test("replaying verification emits no duplicate paid event", async () => {
 
   assert.equal(replay.status, "PAID");
   assert.equal(storage.snapshot().events.filter((item) => item.type === "payment.paid").length, 1);
+});
+
+test("outbox delivery acknowledges committed events and does not redeliver acknowledged events", async () => {
+  const { egyPay, storage } = fixture();
+  await egyPay.createIntent(createInput());
+  const delivered = [];
+  const clock = { now: () => new Date("2026-01-01T00:00:01.000Z") };
+  const ids = { nextId: () => "lease-1" };
+
+  const first = await dispatchOutbox({
+    store: storage,
+    publish: async (event) => delivered.push(event.id),
+    clock,
+    ids,
+  });
+  const second = await dispatchOutbox({
+    store: storage,
+    publish: async (event) => delivered.push(event.id),
+    clock,
+    ids,
+  });
+
+  assert.deepEqual(first, { claimed: 1, delivered: 1, failed: 0, leaseLost: 0 });
+  assert.deepEqual(second, { claimed: 0, delivered: 0, failed: 0, leaseLost: 0 });
+  assert.deepEqual(delivered, [storage.snapshot().events[0].id]);
+});
+
+test("failed outbox delivery is delayed and retried with the same stable event ID", async () => {
+  const { egyPay, storage } = fixture();
+  await egyPay.createIntent(createInput());
+  let current = new Date("2026-01-01T00:00:01.000Z");
+  const clock = { now: () => new Date(current) };
+  let calls = 0;
+  const deliveredIds = [];
+
+  const first = await dispatchOutbox({
+    store: storage,
+    publish: async (event) => {
+      calls += 1;
+      deliveredIds.push(event.id);
+      throw new Error("transport unavailable");
+    },
+    clock,
+    ids: { nextId: () => "lease-1" },
+  });
+  const tooSoon = await dispatchOutbox({
+    store: storage,
+    publish: async () => { calls += 1; },
+    clock,
+    ids: { nextId: () => "lease-2" },
+  });
+  current = new Date(current.getTime() + 1_000);
+  const retry = await dispatchOutbox({
+    store: storage,
+    publish: async (event) => {
+      calls += 1;
+      deliveredIds.push(event.id);
+    },
+    clock,
+    ids: { nextId: () => "lease-3" },
+  });
+
+  assert.equal(first.failed, 1);
+  assert.equal(tooSoon.claimed, 0);
+  assert.equal(retry.delivered, 1);
+  assert.equal(calls, 2);
+  assert.equal(deliveredIds[0], deliveredIds[1]);
+});
+
+test("concurrent outbox dispatchers lease distinct events", async () => {
+  const { egyPay, storage } = fixture();
+  await egyPay.createIntent(createInput({ idempotencyKey: "create-a" }));
+  await egyPay.createIntent(createInput({ orderId: "order-2", idempotencyKey: "create-b" }));
+  const deliveredIds = [];
+  const clock = { now: () => new Date("2026-01-01T00:00:01.000Z") };
+
+  const [first, second] = await Promise.all([
+    dispatchOutbox({
+      store: storage,
+      publish: async (event) => deliveredIds.push(event.id),
+      limit: 1,
+      clock,
+      ids: { nextId: () => "lease-a" },
+    }),
+    dispatchOutbox({
+      store: storage,
+      publish: async (event) => deliveredIds.push(event.id),
+      limit: 1,
+      clock,
+      ids: { nextId: () => "lease-b" },
+    }),
+  ]);
+
+  assert.equal(first.delivered + second.delivered, 2);
+  assert.equal(new Set(deliveredIds).size, 2);
 });
